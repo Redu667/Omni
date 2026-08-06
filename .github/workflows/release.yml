@@ -7,9 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v0.1.0). Created if it does not exist.'
-        required: true
-        default: 'v0.1.0'
+        description: 'Release tag (e.g. v0.2.0). Defaults to the version in pubspec.yaml.'
+        required: false
 
 permissions:
   contents: write
@@ -43,12 +42,27 @@ jobs:
       - name: Build signed release APK
         run: flutter build apk --release
 
-      - name: Rename APK
+      # Tag precedence: an explicit input, else the pushed tag, else the
+      # version in pubspec.yaml — so a plain manual run always releases
+      # whatever version the app actually declares.
+      - name: Resolve release tag
         id: apk
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          fi
+          if [ -z "$TAG" ]; then
+            VERSION=$(sed -n 's/^version:[[:space:]]*\([^+]*\).*/\1/p' pubspec.yaml | head -1 | tr -d '[:space:]')
+            if [ -z "$VERSION" ]; then
+              echo "::error::Could not read a version from pubspec.yaml"
+              exit 1
+            fi
+            TAG="v$VERSION"
+          fi
           APK="omni-${TAG}.apk"
           cp build/app/outputs/flutter-apk/app-release.apk "$APK"
+          echo "Releasing $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "apk=$APK" >> "$GITHUB_OUTPUT"
 
