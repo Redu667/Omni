@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import '../models/feed_item.dart';
 import '../models/feed_source.dart';
 import 'source_client.dart';
+import 'twitter_guest_config.dart';
+import 'twitter_guest_session.dart';
 
 class FeedResult {
   const FeedResult({required this.items, required this.errors});
@@ -21,15 +23,26 @@ class FeedRepository {
 
   final http.Client _http;
 
-  Future<FeedResult> fetchAll(List<FeedSource> sources,
-      {int limitPerSource = 40}) async {
+  /// Shared across refreshes so one anonymous X session serves every
+  /// Twitter source instead of activating a token per account.
+  final _twitterSession = TwitterGuestSession();
+
+  Future<FeedResult> fetchAll(
+    List<FeedSource> sources, {
+    int limitPerSource = 40,
+    TwitterGuestConfig? twitterConfig,
+  }) async {
     final enabled = sources.where((s) => s.enabled).toList();
     final errors = <String>[];
 
     final results = await Future.wait(enabled.map((source) async {
       try {
-        return await SourceClient.forSource(source, _http)
-            .fetchLatest(limit: limitPerSource);
+        return await SourceClient.forSource(
+          source,
+          _http,
+          twitterConfig: twitterConfig,
+          twitterSession: _twitterSession,
+        ).fetchLatest(limit: limitPerSource);
       } on SourceFetchException catch (e) {
         errors.add(e.toString());
       } catch (e) {

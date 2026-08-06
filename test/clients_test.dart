@@ -335,8 +335,11 @@ void main() {
       });
 
       final items = await SourceClient.forSource(
-        source(Network.twitter,
-            {'bearerToken': 'tok', 'usernames': 'devperson'}),
+        source(Network.twitter, {
+          'mode': 'official',
+          'bearerToken': 'tok',
+          'usernames': 'devperson',
+        }),
         client,
       ).fetchLatest();
 
@@ -355,7 +358,8 @@ void main() {
 
       expect(
         SourceClient.forSource(
-          source(Network.twitter, {'bearerToken': 'bad', 'usernames': 'x'}),
+          source(Network.twitter,
+              {'mode': 'official', 'bearerToken': 'bad', 'usernames': 'x'}),
           client,
         ).fetchLatest(),
         throwsA(predicate((e) =>
