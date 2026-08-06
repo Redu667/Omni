@@ -9,6 +9,12 @@ Moshidon, but spanning multiple networks.
 
 - **Unified timeline** — posts from every configured source, merged and sorted
   by time, with pull-to-refresh.
+- **Easy setup** — in-app Mastodon sign-in (OAuth, no token pasting), a
+  quick-start screen with curated no-account sources, and every source is
+  test-fetched when you add it so mistakes fail immediately with a clear
+  message.
+- **RSS auto-discovery & OPML import** — paste any website URL and Omni finds
+  its feed; bring your subscriptions from another reader via OPML.
 - **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
 - **Multiple sources per network** — several subreddits, several feeds,
   several accounts; toggle each on/off or remove it.
@@ -22,7 +28,7 @@ Moshidon, but spanning multiple networks.
 
 | Network | What you can add | Auth |
 |---|---|---|
-| Mastodon | Home timeline, or any instance's public/local timeline | Optional access token (Settings → Development on your instance) |
+| Mastodon | Home timeline, or any instance's public/local timeline | In-app OAuth sign-in (or none for public timelines) |
 | Bluesky | Your home timeline, or any user's public feed | Optional app password (Settings → App Passwords) |
 | Reddit | Any subreddit (`flutter` or `flutter+androiddev`) | None |
 | Twitter/X | Recent posts from chosen usernames | Your own API v2 bearer token — **X requires a paid API plan for read access** |

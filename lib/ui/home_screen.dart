@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import 'add_source_screen.dart';
 import 'post_card.dart';
 import 'sources_screen.dart';
+import 'starter_picks_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -167,8 +168,16 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('Quick start'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StarterPicksScreen()),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
               icon: const Icon(Icons.add),
-              label: const Text('Add a source'),
+              label: const Text('Add a source manually'),
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AddSourceScreen()),
               ),

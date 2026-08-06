@@ -5,14 +5,17 @@ import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_repository.dart';
 import '../services/source_store.dart';
+import '../services/source_validator.dart';
 
 class AppState extends ChangeNotifier {
-  AppState({FeedRepository? repository, SourceStore? store})
+  AppState({FeedRepository? repository, SourceStore? store, SourceValidator? validator})
       : _repository = repository ?? FeedRepository(),
-        _store = store ?? SourceStore();
+        _store = store ?? SourceStore(),
+        _validator = validator ?? SourceValidator();
 
   final FeedRepository _repository;
   final SourceStore _store;
+  final SourceValidator _validator;
 
   List<FeedSource> _sources = [];
   List<FeedItem> _items = [];
@@ -56,8 +59,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addSource(FeedSource source) async {
-    _sources = [..._sources, source];
+  /// Test-fetches the source first; throws [SourceFetchException] with a
+  /// readable message if it's misconfigured. May return a fixed-up source
+  /// (e.g. RSS URL swapped for the feed a web page advertises).
+  Future<void> validateAndAddSource(FeedSource source) async {
+    final validated = await _validator.validate(source);
+    await addSources([validated]);
+  }
+
+  Future<void> addSources(List<FeedSource> sources) async {
+    _sources = [..._sources, ...sources];
     await _store.save(_sources);
     notifyListeners();
     await refresh();
@@ -87,6 +98,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _repository.dispose();
+    _validator.dispose();
     super.dispose();
   }
 }
