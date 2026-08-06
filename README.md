@@ -45,6 +45,21 @@ flutter analyze
 flutter test
 ```
 
+## Releases
+
+Pre-release APKs are built and published by the **Release APK** GitHub Actions
+workflow (`.github/workflows/release.yml`) — push a `v*` tag or run the
+workflow manually with a tag name, and a signed APK lands on the release page.
+
+Release builds are currently signed with `android/app/dev-keystore.jks`, a
+**development keystore committed to this repo** so pre-releases work with zero
+setup. Anyone with the repo can sign APKs with it, so before distributing the
+app for real, generate a private keystore and point the build at it via the
+`OMNI_KEYSTORE_PATH`, `OMNI_KEYSTORE_PASSWORD`, `OMNI_KEY_ALIAS` and
+`OMNI_KEY_PASSWORD` environment variables (e.g. from GitHub Actions secrets).
+Note that switching keys changes the APK signature, so devices with an older
+install must uninstall before updating.
+
 ## Architecture
 
 ```

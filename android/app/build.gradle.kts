@@ -20,21 +20,29 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "dev.omni.omni"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    // Pre-release/dev signing key checked into the repo. Before any real
+    // distribution, replace with a private keystore via env vars:
+    // OMNI_KEYSTORE_PATH, OMNI_KEYSTORE_PASSWORD, OMNI_KEY_ALIAS, OMNI_KEY_PASSWORD.
+    signingConfigs {
+        create("release") {
+            val envKeystore = System.getenv("OMNI_KEYSTORE_PATH")
+            storeFile = if (envKeystore != null) file(envKeystore) else file("dev-keystore.jks")
+            storePassword = System.getenv("OMNI_KEYSTORE_PASSWORD") ?: "omni-dev-password"
+            keyAlias = System.getenv("OMNI_KEY_ALIAS") ?: "omni-dev"
+            keyPassword = System.getenv("OMNI_KEY_PASSWORD") ?: "omni-dev-password"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }

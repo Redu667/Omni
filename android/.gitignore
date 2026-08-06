@@ -12,3 +12,5 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# Deliberate exception: dev/pre-release signing key (not for production).
+!app/dev-keystore.jks
