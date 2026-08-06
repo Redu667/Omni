@@ -11,6 +11,7 @@ import '../models/network.dart';
 import '../services/mastodon_oauth.dart';
 import '../services/source_client.dart';
 import '../state/app_state.dart';
+import 'twitter_settings_screen.dart';
 
 class AddSourceScreen extends StatefulWidget {
   const AddSourceScreen({super.key, this.initialNetwork});
@@ -54,7 +55,7 @@ class _NetworkPicker extends StatelessWidget {
     Network.mastodon: 'Sign in for your home timeline, or follow an instance',
     Network.bluesky: 'Home timeline (app password) or a public author feed',
     Network.reddit: 'Any subreddit — no account needed',
-    Network.twitter: 'Via the official API (needs your own bearer token)',
+    Network.twitter: 'Public tweets without an account, or the official API',
     Network.rss: 'A feed URL, or any website — Omni finds the feed',
   };
 
@@ -104,6 +105,10 @@ class _SourceFormState extends State<_SourceForm> {
   bool _saving = false;
   String? _error;
 
+  /// Twitter defaults to anonymous guest access; the official API is opt-in
+  /// because it needs a paid plan.
+  bool _twitterOfficial = false;
+
   // Mastodon OAuth state, alive while the browser round-trip is in flight.
   final _oauth = MastodonOAuth(http.Client());
   StreamSubscription<Uri>? _linkSub;
@@ -130,13 +135,14 @@ class _SourceFormState extends State<_SourceForm> {
             _FieldSpec('subreddit', 'Subreddit(s)',
                 hint: 'flutter or flutter+androiddev', required: true),
           ],
-        Network.twitter => const [
-            _FieldSpec('bearerToken', 'API bearer token',
-                hint: 'From developer.x.com (paid read access)',
-                required: true,
-                obscure: true),
-            _FieldSpec('usernames', 'Usernames',
-                hint: 'user1, user2', required: true),
+        Network.twitter => [
+            const _FieldSpec('usernames', 'Usernames',
+                hint: 'nasa, flutterdev', required: true),
+            if (_twitterOfficial)
+              const _FieldSpec('bearerToken', 'API bearer token',
+                  hint: 'From developer.x.com (paid read access)',
+                  required: true,
+                  obscure: true),
           ],
         Network.rss => const [
             _FieldSpec('url', 'Feed or website URL',
@@ -248,6 +254,9 @@ class _SourceFormState extends State<_SourceForm> {
     if (widget.network == Network.mastodon) {
       params['instance'] = MastodonOAuth.normalizeInstance(params['instance']!);
     }
+    if (widget.network == Network.twitter) {
+      params['mode'] = _twitterOfficial ? 'official' : 'guest';
+    }
 
     if (widget.network == Network.bluesky &&
         params['handle'] == null &&
@@ -336,16 +345,51 @@ class _SourceFormState extends State<_SourceForm> {
               ),
             ),
           ],
-          if (widget.network == Network.twitter)
+          if (widget.network == Network.twitter) ...[
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.public, size: 18),
+                  label: Text('Anonymous'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.vpn_key, size: 18),
+                  label: Text('Official API'),
+                ),
+              ],
+              selected: {_twitterOfficial},
+              onSelectionChanged: (s) =>
+                  setState(() => _twitterOfficial = s.first),
+            ),
             Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(top: 8, bottom: 8),
               child: Text(
-                'Note: X removed free API read access. This source only works '
-                'with a bearer token from a paid API plan.',
+                _twitterOfficial
+                    ? 'Uses X\'s official API v2. Reliable, but read access '
+                        'requires a paid API plan.'
+                    : 'Reads public tweets the way a logged-out browser does — '
+                        'no account or API plan. X changes its internals '
+                        'periodically, so this breaks from time to time; when '
+                        'it does, refresh the values in settings below.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.outline),
               ),
             ),
+            if (!_twitterOfficial)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.tune, size: 18),
+                  label: const Text('Anonymous access settings'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const TwitterSettingsScreen()),
+                  ),
+                ),
+              ),
+          ],
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),

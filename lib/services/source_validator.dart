@@ -4,6 +4,7 @@ import '../models/feed_source.dart';
 import '../models/network.dart';
 import 'feed_discovery.dart';
 import 'source_client.dart';
+import 'twitter_guest_config.dart';
 
 /// Test-fetches a source before it's saved, so misconfiguration fails at
 /// add time with a clear message instead of silently later.
@@ -16,9 +17,13 @@ class SourceValidator {
   /// Returns the source (possibly fixed up — e.g. an RSS source whose URL
   /// pointed at an HTML page gets swapped for the page's advertised feed).
   /// Throws [SourceFetchException] with a user-readable message on failure.
-  Future<FeedSource> validate(FeedSource source) async {
+  Future<FeedSource> validate(
+    FeedSource source, {
+    TwitterGuestConfig? twitterConfig,
+  }) async {
     try {
-      await SourceClient.forSource(source, _http).fetchLatest(limit: 5);
+      await SourceClient.forSource(source, _http, twitterConfig: twitterConfig)
+          .fetchLatest(limit: 5);
       return source;
     } on SourceFetchException {
       if (source.network == Network.rss) {

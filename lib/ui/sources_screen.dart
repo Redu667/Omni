@@ -10,6 +10,7 @@ import '../services/feed_discovery.dart';
 import '../state/app_state.dart';
 import 'add_source_screen.dart';
 import 'starter_picks_screen.dart';
+import 'twitter_settings_screen.dart';
 
 class SourcesScreen extends StatelessWidget {
   const SourcesScreen({super.key});
@@ -82,6 +83,13 @@ class SourcesScreen extends StatelessWidget {
             icon: const Icon(Icons.upload_file),
             tooltip: 'Import OPML',
             onPressed: () => _importOpml(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Twitter (X) access',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TwitterSettingsScreen()),
+            ),
           ),
         ],
       ),

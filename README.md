@@ -31,8 +31,31 @@ Moshidon, but spanning multiple networks.
 | Mastodon | Home timeline, or any instance's public/local timeline | In-app OAuth sign-in (or none for public timelines) |
 | Bluesky | Your home timeline, or any user's public feed | Optional app password (Settings → App Passwords) |
 | Reddit | Any subreddit (`flutter` or `flutter+androiddev`) | None |
-| Twitter/X | Recent posts from chosen usernames | Your own API v2 bearer token — **X requires a paid API plan for read access** |
+| Twitter/X | Public posts from chosen usernames | **Anonymous** (default, no account) or the official API v2 with your own bearer token |
 | RSS / Atom | Any feed URL | None |
+
+### Twitter/X without an API plan
+
+X removed free API read access in 2023, which is what killed the third-party
+client ecosystem. Omni's default Twitter mode works around that the same way
+Squawker and Nitter do: it activates an **anonymous guest token** — the exact
+credential x.com hands a logged-out browser — and calls X's internal GraphQL
+endpoints with it. No account, no API plan, read-only.
+
+Two things to know before relying on it:
+
+- **It breaks periodically, by design.** Those endpoints are identified by
+  query IDs that change whenever X ships a frontend build. When Twitter
+  sources start failing, open **Sources → Twitter (X) access** and paste
+  current values, which you can lift from an actively-maintained project like
+  [Squawker](https://github.com/j-fbriere/squawker) or
+  [Nitter](https://github.com/zedeus/nitter). Because these live in settings
+  rather than in the code, recovering takes a few seconds and no app update.
+  Omni's error messages name the specific thing to update.
+- **It is not a supported interface** and using it is contrary to X's terms of
+  service. It is also rate limited, so a handful of accounts works much better
+  than dozens. If you would rather stay inside the sanctioned path, switch the
+  source to **Official API** mode and supply a bearer token from a paid plan.
 
 ## Building
 
