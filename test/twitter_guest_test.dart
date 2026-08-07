@@ -9,6 +9,7 @@ import 'package:omni/services/source_client.dart';
 import 'package:omni/services/twitter_guest_client.dart';
 import 'package:omni/services/twitter_guest_config.dart';
 import 'package:omni/services/twitter_guest_session.dart';
+import 'package:omni/services/twitter_session_store.dart';
 import 'package:omni/util/text.dart';
 
 FeedSource twitterSource([Map<String, String>? extra]) => FeedSource(
@@ -369,8 +370,7 @@ void main() {
         fetch(client),
         throwsA(predicate((e) =>
             e is SourceFetchException &&
-            e.message.contains('stale timeline') &&
-            e.message.contains('query IDs'))),
+            e.message.contains('stale timeline'))),
       );
     });
 
@@ -532,6 +532,122 @@ void main() {
       final items = await fetch(
           client, twitterSource({'usernames': 'nasa, ghost'}));
       expect(items.single.text, 'survivor');
+    });
+  });
+
+  group('signed-in account', () {
+    const account = TwitterSession(
+        authToken: 'auth123', csrfToken: 'ct0abc', screenName: 'me');
+
+    Future<List<dynamic>> fetchAsAccount(MockClient client) =>
+        TwitterGuestClient(
+          twitterSource(),
+          client,
+          config: TwitterGuestConfig.defaults,
+          session: TwitterGuestSession(),
+          account: account,
+        ).fetchLatest();
+
+    test('authenticates with cookies and the CSRF header, not a guest token',
+        () async {
+      final requests = <http.Request>[];
+      var activations = 0;
+      final client = MockClient((req) async {
+        if (req.url.path == '/1.1/guest/activate.json') {
+          activations++;
+          return jsonResponse({'guest_token': 'g1'});
+        }
+        requests.add(req);
+        if (req.url.path.contains('UserByScreenName')) {
+          return jsonResponse({
+            'data': {'user': {'result': {'rest_id': '1'}}},
+          });
+        }
+        return jsonResponse(
+            timelineBody([tweetEntry(id: '30', text: 'live post')]));
+      });
+
+      final items = await fetchAsAccount(client);
+
+      // No guest token is activated at all when signed in.
+      expect(activations, 0);
+      expect(requests.first.headers['Cookie'], contains('auth_token=auth123'));
+      expect(requests.first.headers['Cookie'], contains('ct0=ct0abc'));
+      expect(requests.first.headers['x-csrf-token'], 'ct0abc');
+      expect(requests.first.headers['x-twitter-auth-type'], 'OAuth2Session');
+      expect(requests.first.headers.containsKey('x-guest-token'), isFalse);
+      expect(items.single.text, 'live post');
+    });
+
+    test('reports an expired session instead of silently falling back',
+        () async {
+      final client = MockClient((req) async {
+        if (req.url.path == '/1.1/guest/activate.json') {
+          return jsonResponse({'guest_token': 'g1'});
+        }
+        return http.Response('unauthorized', 401);
+      });
+
+      expect(
+        fetchAsAccount(client),
+        throwsA(predicate((e) =>
+            e is SourceFetchException &&
+            e.message.contains('expired') &&
+            e.message.contains('sign in again'))),
+      );
+    });
+
+    test('a stale timeline while signed in blames the query IDs', () async {
+      final client = MockClient((req) async {
+        if (req.url.path == '/1.1/guest/activate.json') {
+          return jsonResponse({'guest_token': 'g1'});
+        }
+        if (req.url.path.contains('UserByScreenName')) {
+          return jsonResponse({
+            'data': {'user': {'result': {'rest_id': '1'}}},
+          });
+        }
+        return jsonResponse(timelineBody([
+          tweetEntry(
+              id: '31', text: 'old', createdAt: twitterStamp(daysAgo(400))),
+        ]));
+      });
+
+      expect(
+        fetchAsAccount(client),
+        throwsA(predicate((e) =>
+            e is SourceFetchException &&
+            e.message.contains('signed in') &&
+            e.message.contains('query IDs'))),
+      );
+    });
+
+    test('anonymous staleness points the user at signing in', () async {
+      final client = guestMock(
+        timeline: timelineBody([
+          tweetEntry(
+              id: '32', text: 'old', createdAt: twitterStamp(daysAgo(400))),
+        ]),
+      );
+
+      expect(
+        TwitterGuestClient(
+          twitterSource(),
+          client,
+          config: TwitterGuestConfig.defaults,
+          session: TwitterGuestSession(),
+        ).fetchLatest(),
+        throwsA(predicate((e) =>
+            e is SourceFetchException &&
+            e.message.contains('Signing in'))),
+      );
+    });
+
+    test('session round-trips through JSON', () {
+      final restored = TwitterSession.fromJson(account.toJson());
+      expect(restored.authToken, 'auth123');
+      expect(restored.csrfToken, 'ct0abc');
+      expect(restored.cookieHeader, 'auth_token=auth123; ct0=ct0abc');
     });
   });
 

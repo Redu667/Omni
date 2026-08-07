@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:xml/xml.dart';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
@@ -45,22 +46,171 @@ class RedditClient extends SourceClient {
       if (res.statusCode != 403 && res.statusCode != 429) break;
     }
 
+    // Reddit now blocks the JSON listings for anything that isn't a real
+    // browser session, including on plainly public subreddits. The Atom
+    // feeds are still served openly, so fall back to those rather than
+    // failing — fewer fields, but a working feed.
+    if (lastResponse!.statusCode == 403 || lastResponse.statusCode == 429) {
+      final viaRss = await _fetchViaRss(subreddit, sort, limit);
+      if (viaRss != null) return viaRss;
+    }
+
     throw SourceFetchException(
-        source.displayName, _explain(lastResponse!.statusCode, subreddit));
+        source.displayName, _explain(lastResponse.statusCode, subreddit));
   }
 
   /// Reddit uses the same status code for several very different problems,
   /// so say which one it likely is rather than echoing a bare number.
   static String _explain(int status, String subreddit) => switch (status) {
         403 =>
-          'Reddit refused the request for r/$subreddit (403). That subreddit is '
-              'usually private, quarantined or banned — or Reddit is temporarily '
-              'blocking anonymous access from your network. Public subreddits '
-              'normally work on a retry.',
+          'Reddit refused the request for r/$subreddit (403), and its feed did '
+              'not answer either. That subreddit may be private, quarantined or '
+              'banned — otherwise Reddit is blocking anonymous access from your '
+              'network right now.',
         404 => 'No subreddit called r/$subreddit.',
         429 => 'Reddit is rate limiting right now — try again in a minute.',
         _ => 'HTTP $status from Reddit.',
       };
+
+  /// Parses `/r/<sub>/<sort>.rss`, which Reddit serves as Atom. Scores and
+  /// comment counts aren't in the feed, so those come back null.
+  Future<List<FeedItem>?> _fetchViaRss(
+      String subreddit, String sort, int limit) async {
+    final res = await httpClient.get(
+      Uri.https('www.reddit.com', '/r/$subreddit/$sort.rss', {'limit': '$limit'}),
+      headers: {
+        ..._headers,
+        'Accept': 'application/atom+xml, application/xml, text/xml',
+      },
+    );
+    if (res.statusCode != 200) return null;
+
+    final XmlDocument doc;
+    try {
+      doc = XmlDocument.parse(utf8.decode(res.bodyBytes));
+    } on XmlException {
+      return null;
+    }
+
+    final entries = doc.findAllElements('entry').take(limit);
+    return [
+      for (final entry in entries)
+        () {
+          String text(String tag) =>
+              entry.getElement(tag)?.innerText.trim() ?? '';
+
+          final link = entry.getElement('link')?.getAttribute('href');
+          final author = entry
+                  .getElement('author')
+                  ?.getElement('name')
+                  ?.innerText
+                  .trim() ??
+              '[deleted]';
+          final contentHtml = entry.getElement('content')?.innerText ?? '';
+          final image = RegExp('<img[^>]+src="([^"]+)"', caseSensitive: false)
+              .firstMatch(contentHtml)
+              ?.group(1);
+
+          return FeedItem(
+            id: '${source.id}:${text('id').isNotEmpty ? text('id') : link}',
+            sourceId: source.id,
+            network: Network.reddit,
+            author: author.startsWith('/u/') ? author.substring(1) : author,
+            title: htmlToPlainText(text('title')),
+            url: link,
+            nativeId: link,
+            imageUrls: [if (image != null) image],
+            context: 'r/$subreddit',
+            createdAt: DateTime.tryParse(
+                        text('updated').isNotEmpty
+                            ? text('updated')
+                            : text('published'))
+                    ?.toUtc() ??
+                DateTime.now().toUtc(),
+          );
+        }(),
+    ];
+  }
+
+  @override
+  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
+    final permalink = item.nativeId ?? item.url;
+    if (permalink == null) return const [];
+
+    final path = Uri.tryParse(permalink)?.path;
+    if (path == null || path.isEmpty) return const [];
+
+    for (final host in _hosts) {
+      final res = await httpClient.get(
+        Uri.https(host, '${path.replaceAll(RegExp(r'/$'), '')}.json',
+            {'limit': '$limit', 'raw_json': '1', 'sort': 'top'}),
+        headers: _headers,
+      );
+      if (res.statusCode != 200) continue;
+
+      // The response is [post listing, comment listing].
+      final listings = jsonDecode(utf8.decode(res.bodyBytes)) as List;
+      if (listings.length < 2) return const [];
+
+      final entries = <ThreadEntry>[];
+      _collectComments(
+        (listings[1] as Map<String, dynamic>)['data'] as Map<String, dynamic>?,
+        0,
+        entries,
+        limit,
+      );
+      return entries;
+    }
+    return const [];
+  }
+
+  /// Reddit nests replies as listings inside each comment, so walk down and
+  /// flatten, carrying the depth for indentation.
+  void _collectComments(
+    Map<String, dynamic>? listing,
+    int depth,
+    List<ThreadEntry> out,
+    int limit,
+  ) {
+    if (listing == null || out.length >= limit) return;
+
+    for (final child in (listing['children'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()) {
+      if (out.length >= limit) return;
+      // "more" placeholders stand in for unloaded replies, not content.
+      if (child['kind'] != 't1') continue;
+
+      final data = child['data'] as Map<String, dynamic>?;
+      if (data == null) continue;
+
+      final bodyText = data['body'] as String? ?? '';
+      if (bodyText.isEmpty) continue;
+
+      out.add(ThreadEntry(
+        depth: depth,
+        item: FeedItem(
+          id: '${source.id}:${data['name'] ?? data['id']}',
+          sourceId: source.id,
+          network: Network.reddit,
+          author: 'u/${data['author'] ?? '[deleted]'}',
+          text: htmlToPlainText(bodyText),
+          url: data['permalink'] != null
+              ? 'https://www.reddit.com${data['permalink']}'
+              : null,
+          likes: data['score'] as int?,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(
+              (((data['created_utc'] as num?)?.toDouble() ?? 0) * 1000).round(),
+              isUtc: true),
+        ),
+      ));
+
+      final replies = data['replies'];
+      if (replies is Map<String, dynamic>) {
+        _collectComments(
+            replies['data'] as Map<String, dynamic>?, depth + 1, out, limit);
+      }
+    }
+  }
 
   List<FeedItem> _parse(http.Response res) {
     final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
@@ -100,6 +250,8 @@ class RedditClient extends SourceClient {
       title: htmlToPlainText(post['title'] as String? ?? ''),
       text: selftext.length > 500 ? '${selftext.substring(0, 500)}…' : selftext,
       url: 'https://www.reddit.com${post['permalink'] ?? ''}',
+      nativeId: post['permalink'] as String?,
+      fullText: selftext.isNotEmpty ? selftext : null,
       imageUrls: images,
       likes: post['ups'] as int?,
       replies: post['num_comments'] as int?,

@@ -1,13 +1,11 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
-import '../state/app_state.dart';
-import 'post_view_screen.dart';
+import 'post_detail_screen.dart';
 
 class PostCard extends StatelessWidget {
   const PostCard({super.key, required this.item});
@@ -20,15 +18,12 @@ class PostCard extends StatelessWidget {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
+  /// Opens Omni's own rendering of the post. The browser is reachable from
+  /// there, or directly via long-press.
   void _open(BuildContext context) {
-    if (item.url == null) return;
-    if (context.read<AppState>().openInApp) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => PostViewScreen(item: item)),
-      );
-    } else {
-      _openExternally();
-    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => PostDetailScreen(item: item)),
+    );
   }
 
   @override

@@ -73,6 +73,39 @@ class BlueskyClient extends SourceClient {
     return body['feed'] as List? ?? const [];
   }
 
+  @override
+  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
+    final uri = item.nativeId;
+    if (uri == null) return const [];
+
+    final res = await httpClient.get(
+      Uri.https(_publicHost, '/xrpc/app.bsky.feed.getPostThread',
+          {'uri': uri, 'depth': '6'}),
+    );
+    if (res.statusCode != 200) return const [];
+
+    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    final thread = body['thread'] as Map<String, dynamic>?;
+    if (thread == null) return const [];
+
+    final entries = <ThreadEntry>[];
+    _collectReplies(thread['replies'] as List?, 0, entries, limit);
+    return entries;
+  }
+
+  /// Bluesky nests replies inside each post, so flatten depth-first.
+  void _collectReplies(
+      List? replies, int depth, List<ThreadEntry> out, int limit) {
+    for (final reply in (replies ?? const []).cast<Map<String, dynamic>>()) {
+      if (out.length >= limit) return;
+      // Blocked and deleted posts come back as stubs with no `post`.
+      if (reply['post'] == null) continue;
+
+      out.add(ThreadEntry(depth: depth, item: _toItem({'post': reply['post']})));
+      _collectReplies(reply['replies'] as List?, depth + 1, out, limit);
+    }
+  }
+
   FeedItem _toItem(Map<String, dynamic> feedEntry) {
     final post = feedEntry['post'] as Map<String, dynamic>;
     final author = post['author'] as Map<String, dynamic>;
@@ -111,6 +144,7 @@ class BlueskyClient extends SourceClient {
       url: rkey.isNotEmpty
           ? 'https://bsky.app/profile/$handle/post/$rkey'
           : null,
+      nativeId: post['uri'] as String?,
       imageUrls: images,
       repostedBy: repostedBy,
       likes: post['likeCount'] as int?,

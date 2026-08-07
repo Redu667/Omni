@@ -40,6 +40,42 @@ class MastodonClient extends SourceClient {
         .toList(growable: false);
   }
 
+  @override
+  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
+    final statusId = item.nativeId;
+    if (statusId == null) return const [];
+
+    final instance =
+        source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
+    final token = source.params['accessToken'];
+
+    final res = await httpClient.get(
+      Uri.https(instance, '/api/v1/statuses/$statusId/context'),
+      headers: {
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      },
+    );
+    if (res.statusCode != 200) return const [];
+
+    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    final descendants =
+        (body['descendants'] as List? ?? const []).cast<Map<String, dynamic>>();
+
+    // Mastodon returns a flat list; depth comes from following in_reply_to_id
+    // back towards the post being viewed.
+    final depths = <String, int>{statusId: -1};
+    final entries = <ThreadEntry>[];
+    for (final status in descendants.take(limit)) {
+      final id = status['id'] as String?;
+      if (id == null) continue;
+      final parent = status['in_reply_to_id'] as String?;
+      final depth = (depths[parent] ?? -1) + 1;
+      depths[id] = depth;
+      entries.add(ThreadEntry(depth: depth, item: _toItem(status)));
+    }
+    return entries;
+  }
+
   FeedItem _toItem(Map<String, dynamic> status) {
     String? repostedBy;
     var s = status;
@@ -61,6 +97,7 @@ class MastodonClient extends SourceClient {
       avatarUrl: account['avatar'] as String?,
       text: htmlToPlainText(s['content'] as String? ?? ''),
       url: (s['url'] ?? s['uri']) as String?,
+      nativeId: s['id'] as String?,
       imageUrls: [
         for (final m in media)
           if (m['type'] == 'image' && m['preview_url'] != null)

@@ -19,6 +19,8 @@ class FeedItem {
     this.reposts,
     this.replies,
     this.context,
+    this.fullText,
+    this.nativeId,
   });
 
   /// Globally unique: `sourceId:nativeId`.
@@ -50,5 +52,26 @@ class FeedItem {
   /// Extra origin info, e.g. "r/flutter" or the feed's title.
   final String? context;
 
+  /// Untruncated body, when [text] had to be shortened for the timeline.
+  /// The detail view shows this in preference to [text].
+  final String? fullText;
+
+  /// The network's own identifier for this post — a Mastodon status id, an
+  /// `at://` URI, a Reddit permalink. Needed to fetch the reply thread,
+  /// since [id] is namespaced to the source.
+  final String? nativeId;
+
   final DateTime createdAt;
+
+  /// What the detail view should render as the post body.
+  String get body => (fullText?.isNotEmpty ?? false) ? fullText! : text;
+}
+
+/// One post in a reply thread, flattened with its nesting level so the UI
+/// can indent without recursing through a tree.
+class ThreadEntry {
+  const ThreadEntry({required this.item, this.depth = 0});
+
+  final FeedItem item;
+  final int depth;
 }

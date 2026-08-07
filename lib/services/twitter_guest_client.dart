@@ -8,6 +8,7 @@ import '../util/text.dart';
 import 'source_client.dart';
 import 'twitter_guest_config.dart';
 import 'twitter_guest_session.dart';
+import 'twitter_session_store.dart';
 
 /// Reads public tweets the way X's own logged-out web client does: activate an
 /// anonymous guest token, then call the internal GraphQL endpoints with it.
@@ -22,10 +23,18 @@ class TwitterGuestClient extends SourceClient {
     super.httpClient, {
     required this.config,
     required this.session,
+    this.account,
   });
 
   final TwitterGuestConfig config;
   final TwitterGuestSession session;
+
+  /// A signed-in x.com session, when the user has logged in. Anonymous guest
+  /// access is increasingly served a stale timeline, so an account is the
+  /// difference between live results and year-old ones.
+  final TwitterSession? account;
+
+  bool get _authenticated => account != null;
 
   static const _host = 'api.twitter.com';
 
@@ -68,10 +77,15 @@ class TwitterGuestClient extends SourceClient {
       if (age > staleThreshold) {
         throw SourceFetchException(
           source.displayName,
-          'X returned only posts older than ${age.inDays} days, which means '
-          'anonymous access is being served a stale timeline rather than the '
-          'live one. Refreshing the query IDs in Settings → Twitter (X) access '
-          'usually fixes it; if not, X has tightened guest access again.',
+          _authenticated
+              ? 'X returned only posts older than ${age.inDays} days even '
+                  'though you are signed in, which usually means the query IDs '
+                  'need refreshing in Settings → Twitter (X) access.'
+              : 'X returned only posts older than ${age.inDays} days — '
+                  'anonymous access is being served a stale timeline rather '
+                  'than the live one. Signing in from Settings → Twitter (X) '
+                  'access is the reliable fix; X gives real timelines to '
+                  'accounts and stale ones to guests.',
         );
       }
     }
@@ -275,29 +289,52 @@ class TwitterGuestClient extends SourceClient {
     required String operation,
     required Map<String, dynamic> variables,
   }) async {
-    Future<http.Response> send(String guestToken) => httpClient.get(
-          Uri.https(_host, '/graphql/$queryId/$operation', {
-            'variables': jsonEncode(variables),
-            'features': jsonEncode(config.features),
-          }),
-          headers: {
-            'Authorization': 'Bearer ${config.bearerToken}',
-            'x-guest-token': guestToken,
-            'x-twitter-active-user': 'yes',
-            'x-twitter-client-language': 'en',
-            'Accept': '*/*',
-            'User-Agent':
-                'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-          },
-        );
+    final uri = Uri.https(_host, '/graphql/$queryId/$operation', {
+      'variables': jsonEncode(variables),
+      'features': jsonEncode(config.features),
+    });
 
-    var res = await send(await session.token(httpClient, config));
+    const baseHeaders = {
+      'x-twitter-active-user': 'yes',
+      'x-twitter-client-language': 'en',
+      'Accept': '*/*',
+      'User-Agent':
+          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+    };
 
-    // An expired guest token reads as an auth failure; re-activate once.
-    if (res.statusCode == 401 || res.statusCode == 403) {
-      session.invalidate();
-      res = await send(
-          await session.token(httpClient, config, forceRefresh: true));
+    // A signed-in session authenticates with cookies and needs the CSRF
+    // token echoed back; anonymous access uses a guest token instead.
+    Future<http.Response> sendAsAccount() => httpClient.get(uri, headers: {
+          ...baseHeaders,
+          'Authorization': 'Bearer ${config.bearerToken}',
+          'Cookie': account!.cookieHeader,
+          'x-csrf-token': account!.csrfToken,
+          'x-twitter-auth-type': 'OAuth2Session',
+        });
+
+    Future<http.Response> sendAsGuest(String guestToken) =>
+        httpClient.get(uri, headers: {
+          ...baseHeaders,
+          'Authorization': 'Bearer ${config.bearerToken}',
+          'x-guest-token': guestToken,
+        });
+
+    http.Response res;
+    if (_authenticated) {
+      res = await sendAsAccount();
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        throw TwitterGuestException(
+            'X rejected your sign-in (HTTP ${res.statusCode}). The session has '
+            'probably expired — sign in again from Settings → Twitter (X) access.');
+      }
+    } else {
+      res = await sendAsGuest(await session.token(httpClient, config));
+      // An expired guest token reads as an auth failure; re-activate once.
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        session.invalidate();
+        res = await sendAsGuest(
+            await session.token(httpClient, config, forceRefresh: true));
+      }
     }
 
     if (res.statusCode == 404) {

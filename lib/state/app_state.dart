@@ -8,6 +8,7 @@ import '../services/source_store.dart';
 import '../services/settings_store.dart';
 import '../services/source_validator.dart';
 import '../services/twitter_guest_config.dart';
+import '../services/twitter_session_store.dart';
 
 class AppState extends ChangeNotifier {
   AppState({
@@ -16,17 +17,41 @@ class AppState extends ChangeNotifier {
     SourceValidator? validator,
     TwitterGuestConfigStore? twitterConfigStore,
     SettingsStore? settingsStore,
+    TwitterSessionStore? twitterSessionStore,
   })  : _repository = repository ?? FeedRepository(),
         _store = store ?? SourceStore(),
         _validator = validator ?? SourceValidator(),
         _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore(),
-        _settingsStore = settingsStore ?? SettingsStore();
+        _settingsStore = settingsStore ?? SettingsStore(),
+        _twitterSessionStore = twitterSessionStore ?? TwitterSessionStore();
 
   final FeedRepository _repository;
   final SourceStore _store;
   final SourceValidator _validator;
   final TwitterGuestConfigStore _twitterConfigStore;
   final SettingsStore _settingsStore;
+  final TwitterSessionStore _twitterSessionStore;
+
+  TwitterSession? _twitterAccount;
+
+  /// The signed-in x.com account, if any. Anonymous access gets a stale
+  /// timeline from X, so this is what makes Twitter sources useful.
+  TwitterSession? get twitterAccount => _twitterAccount;
+
+  Future<void> signInToTwitter(TwitterSession session) async {
+    _twitterAccount = session;
+    await _twitterSessionStore.save(session);
+    notifyListeners();
+    if (_sources.any((s) => s.network == Network.twitter && s.enabled)) {
+      await refresh();
+    }
+  }
+
+  Future<void> signOutOfTwitter() async {
+    _twitterAccount = null;
+    await _twitterSessionStore.clear();
+    notifyListeners();
+  }
 
   bool _openInApp = true;
 
@@ -68,10 +93,15 @@ class AppState extends ChangeNotifier {
     _sources = await _store.load();
     _twitterConfig = await _twitterConfigStore.load();
     _openInApp = await _settingsStore.loadOpenInApp();
+    _twitterAccount = await _twitterSessionStore.load();
     _initialized = true;
     notifyListeners();
     if (_sources.isNotEmpty) await refresh();
   }
+
+  Future<List<ThreadEntry>> fetchThread(FeedItem item) =>
+      _repository.fetchThread(item, _sources,
+          twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
 
   Future<void> updateTwitterConfig(TwitterGuestConfig config) async {
     _twitterConfig = config;
@@ -89,7 +119,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     final result = await _repository.fetchAll(_sources,
-        twitterConfig: _twitterConfig);
+        twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
     _items = result.items;
     _errors = result.errors;
     _loading = false;
@@ -101,7 +131,8 @@ class AppState extends ChangeNotifier {
   /// (e.g. RSS URL swapped for the feed a web page advertises).
   Future<void> validateAndAddSource(FeedSource source) async {
     final validated =
-        await _validator.validate(source, twitterConfig: _twitterConfig);
+        await _validator.validate(source,
+            twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
     await addSources([validated]);
   }
 
