@@ -15,6 +15,9 @@ Moshidon, but spanning multiple networks.
   message.
 - **RSS auto-discovery & OPML import** — paste any website URL and Omni finds
   its feed; bring your subscriptions from another reader via OPML.
+- **Reads posts in-app** — tapping a post opens it in Omni's own viewer
+  rather than bouncing you to the browser. Long-press to open externally, or
+  turn the behaviour off entirely in Sources.
 - **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
 - **Multiple sources per network** — several subreddits, several feeds,
   several accounts; toggle each on/off or remove it.
@@ -52,6 +55,11 @@ Two things to know before relying on it:
   [Nitter](https://github.com/zedeus/nitter). Because these live in settings
   rather than in the code, recovering takes a few seconds and no app update.
   Omni's error messages name the specific thing to update.
+- **Watch for stale results.** Guest access degrades quietly: X keeps
+  answering `200 OK` while serving an old slice of the timeline instead of the
+  live one. Omni refuses to present that as current — if the newest post it
+  gets back is more than 45 days old, the source reports an error rather than
+  showing year-old posts as though they were fresh.
 - **It is not a supported interface** and using it is contrary to X's terms of
   service. It is also rate limited, so a handful of accounts works much better
   than dozens. If you would rather stay inside the sanctioned path, switch the

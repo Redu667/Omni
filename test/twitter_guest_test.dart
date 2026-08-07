@@ -18,17 +18,37 @@ FeedSource twitterSource([Map<String, String>? extra]) => FeedSource(
       params: {'mode': 'guest', 'usernames': 'nasa', ...?extra},
     );
 
+const _months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// Renders a UTC instant in the format X stamps on tweets.
+String twitterStamp(DateTime utc) =>
+    'Mon ${_months[utc.month - 1]} ${utc.day.toString().padLeft(2, '0')} '
+    '${utc.hour.toString().padLeft(2, '0')}:'
+    '${utc.minute.toString().padLeft(2, '0')}:'
+    '${utc.second.toString().padLeft(2, '0')} +0000 ${utc.year}';
+
+DateTime daysAgo(int days) =>
+    DateTime.now().toUtc().subtract(Duration(days: days));
+
 /// Minimal stand-in for the shape X's UserTweets response actually has.
+///
+/// [createdAt] defaults to yesterday rather than a fixed date, so the
+/// staleness guard in the client doesn't turn the whole suite red once
+/// enough wall-clock time passes.
 Map<String, dynamic> tweetEntry({
   required String id,
   required String text,
   String name = 'NASA',
   String screenName = 'NASA',
-  String createdAt = 'Wed Aug 05 20:15:00 +0000 2026',
+  String? createdAt,
   Map<String, dynamic>? extraLegacy,
   String? typename,
   Map<String, dynamic>? user,
 }) {
+  createdAt ??= twitterStamp(daysAgo(1));
   final tweet = <String, dynamic>{
     'rest_id': id,
     'core': {
@@ -213,6 +233,7 @@ void main() {
           tweetEntry(
             id: '999',
             text: 'Hello from orbit https://t.co/abc',
+            createdAt: 'Wed Aug 05 20:15:00 +0000 2026',
             extraLegacy: {
               'entities': {
                 'urls': [
@@ -330,6 +351,56 @@ void main() {
       expect(item.author, 'New Shape');
       expect(item.handle, '@newshape');
       expect(item.avatarUrl, 'https://pbs/new.jpg');
+    });
+
+    test('refuses to pass off a stale timeline as current', () async {
+      // X keeps answering 200 while quietly serving an old slice of the
+      // timeline; year-old posts must not appear as if they were fresh.
+      final client = guestMock(
+        timeline: timelineBody([
+          tweetEntry(
+              id: '20',
+              text: 'ancient history',
+              createdAt: twitterStamp(daysAgo(400))),
+        ]),
+      );
+
+      expect(
+        fetch(client),
+        throwsA(predicate((e) =>
+            e is SourceFetchException &&
+            e.message.contains('stale timeline') &&
+            e.message.contains('query IDs'))),
+      );
+    });
+
+    test('accepts a timeline that is merely quiet, not stale', () async {
+      // 40 days old: inside the 45-day threshold, so a low-traffic account
+      // is not mistaken for a degraded connection.
+      final client = guestMock(
+        timeline: timelineBody([
+          tweetEntry(
+              id: '21',
+              text: 'still alive',
+              createdAt: twitterStamp(daysAgo(40))),
+        ]),
+      );
+
+      expect((await fetch(client)).single.text, 'still alive');
+    });
+
+    test('returns newest first even when X does not', () async {
+      final client = guestMock(
+        timeline: timelineBody([
+          tweetEntry(
+              id: '22', text: 'older', createdAt: twitterStamp(daysAgo(5))),
+          tweetEntry(
+              id: '23', text: 'newer', createdAt: twitterStamp(daysAgo(1))),
+        ]),
+      );
+
+      final items = await fetch(client);
+      expect(items.map((i) => i.text), ['newer', 'older']);
     });
 
     test('skips cursor entries', () async {

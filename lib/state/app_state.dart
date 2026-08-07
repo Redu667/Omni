@@ -5,6 +5,7 @@ import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_repository.dart';
 import '../services/source_store.dart';
+import '../services/settings_store.dart';
 import '../services/source_validator.dart';
 import '../services/twitter_guest_config.dart';
 
@@ -14,15 +15,29 @@ class AppState extends ChangeNotifier {
     SourceStore? store,
     SourceValidator? validator,
     TwitterGuestConfigStore? twitterConfigStore,
+    SettingsStore? settingsStore,
   })  : _repository = repository ?? FeedRepository(),
         _store = store ?? SourceStore(),
         _validator = validator ?? SourceValidator(),
-        _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore();
+        _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore(),
+        _settingsStore = settingsStore ?? SettingsStore();
 
   final FeedRepository _repository;
   final SourceStore _store;
   final SourceValidator _validator;
   final TwitterGuestConfigStore _twitterConfigStore;
+  final SettingsStore _settingsStore;
+
+  bool _openInApp = true;
+
+  /// Whether tapping a post opens Omni's built-in viewer or the browser.
+  bool get openInApp => _openInApp;
+
+  Future<void> setOpenInApp(bool value) async {
+    _openInApp = value;
+    await _settingsStore.saveOpenInApp(value);
+    notifyListeners();
+  }
 
   TwitterGuestConfig _twitterConfig = TwitterGuestConfig.defaults;
   TwitterGuestConfig get twitterConfig => _twitterConfig;
@@ -52,6 +67,7 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     _sources = await _store.load();
     _twitterConfig = await _twitterConfigStore.load();
+    _openInApp = await _settingsStore.loadOpenInApp();
     _initialized = true;
     notifyListeners();
     if (_sources.isNotEmpty) await refresh();

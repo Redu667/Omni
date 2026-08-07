@@ -57,8 +57,31 @@ class TwitterGuestClient extends SourceClient {
     if (items.isEmpty && failures.isNotEmpty) {
       throw SourceFetchException(source.displayName, failures.first);
     }
+
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    // Anonymous access degrades quietly: X keeps answering 200 but serves a
+    // stale slice of the timeline. Silently showing year-old posts as if
+    // they were current is worse than saying nothing, so call it out.
+    if (items.isNotEmpty) {
+      final age = DateTime.now().toUtc().difference(items.first.createdAt);
+      if (age > staleThreshold) {
+        throw SourceFetchException(
+          source.displayName,
+          'X returned only posts older than ${age.inDays} days, which means '
+          'anonymous access is being served a stale timeline rather than the '
+          'live one. Refreshing the query IDs in Settings → Twitter (X) access '
+          'usually fixes it; if not, X has tightened guest access again.',
+        );
+      }
+    }
     return items;
   }
+
+  /// How out of date the newest post must be before the timeline is treated
+  /// as stale rather than merely quiet. Generous, so genuinely inactive
+  /// accounts don't trip it.
+  static const staleThreshold = Duration(days: 45);
 
   Future<String> _resolveUserId(String username) async {
     final body = await _graphql(

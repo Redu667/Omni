@@ -1,20 +1,34 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
+import '../state/app_state.dart';
+import 'post_view_screen.dart';
 
 class PostCard extends StatelessWidget {
   const PostCard({super.key, required this.item});
 
   final FeedItem item;
 
-  Future<void> _open() async {
+  Future<void> _openExternally() async {
     final url = item.url;
     if (url == null) return;
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  void _open(BuildContext context) {
+    if (item.url == null) return;
+    if (context.read<AppState>().openInApp) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => PostViewScreen(item: item)),
+      );
+    } else {
+      _openExternally();
+    }
   }
 
   @override
@@ -25,7 +39,8 @@ class PostCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: _open,
+        onTap: () => _open(context),
+        onLongPress: _openExternally,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
