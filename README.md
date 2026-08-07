@@ -15,9 +15,11 @@ Moshidon, but spanning multiple networks.
   message.
 - **RSS auto-discovery & OPML import** — paste any website URL and Omni finds
   its feed; bring your subscriptions from another reader via OPML.
-- **Reads posts in-app** — tapping a post opens it in Omni's own viewer
-  rather than bouncing you to the browser. Long-press to open externally, or
-  turn the behaviour off entirely in Sources.
+- **Native post view** — tapping a post renders it with Flutter widgets in
+  the same visual language as the timeline: full text, media, engagement
+  counts, and the reply thread underneath (Reddit comments, Mastodon context,
+  Bluesky threads). The original page is one tap away, in Omni's browser or
+  yours, but you never have to go there to read.
 - **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
 - **Multiple sources per network** — several subreddits, several feeds,
   several accounts; toggle each on/off or remove it.
@@ -33,17 +35,27 @@ Moshidon, but spanning multiple networks.
 |---|---|---|
 | Mastodon | Home timeline, or any instance's public/local timeline | In-app OAuth sign-in (or none for public timelines) |
 | Bluesky | Your home timeline, or any user's public feed | Optional app password (Settings → App Passwords) |
-| Reddit | Any subreddit (`flutter` or `flutter+androiddev`) | None |
-| Twitter/X | Public posts from chosen usernames | **Anonymous** (default, no account) or the official API v2 with your own bearer token |
+| Reddit | Any subreddit (`flutter` or `flutter+androiddev`) | None — falls back to Reddit's Atom feeds when the JSON API is blocked |
+| Twitter/X | Public posts from chosen usernames | **Sign in** (recommended), anonymous, or the official API v2 with your own bearer token |
 | RSS / Atom | Any feed URL | None |
 
 ### Twitter/X without an API plan
 
 X removed free API read access in 2023, which is what killed the third-party
-client ecosystem. Omni's default Twitter mode works around that the same way
-Squawker and Nitter do: it activates an **anonymous guest token** — the exact
-credential x.com hands a logged-out browser — and calls X's internal GraphQL
-endpoints with it. No account, no API plan, read-only.
+client ecosystem. Omni works around that the same way Squawker and Nitter do:
+it talks to X's internal GraphQL endpoints — the ones x.com's own web app
+uses — rather than the paid API. Read-only, no API plan.
+
+There are two ways to authenticate that, and the difference matters a lot:
+
+- **Signed in (recommended).** Log in to x.com in an in-app browser; Omni
+  keeps the session cookie X sets and sends it with each request. Your
+  password is typed on X's own pages and never passes through Omni. This is
+  the only mode that reliably returns a **live** timeline.
+- **Anonymous.** Omni activates a guest token, the credential x.com issues to
+  logged-out visitors. It needs no account, but X increasingly serves guests a
+  stale slice of the timeline — often posts a year old — rather than current
+  ones. Fine for a quick look, unreliable as a feed.
 
 Two things to know before relying on it:
 
@@ -55,15 +67,18 @@ Two things to know before relying on it:
   [Nitter](https://github.com/zedeus/nitter). Because these live in settings
   rather than in the code, recovering takes a few seconds and no app update.
   Omni's error messages name the specific thing to update.
-- **Watch for stale results.** Guest access degrades quietly: X keeps
-  answering `200 OK` while serving an old slice of the timeline instead of the
-  live one. Omni refuses to present that as current — if the newest post it
-  gets back is more than 45 days old, the source reports an error rather than
-  showing year-old posts as though they were fresh.
-- **It is not a supported interface** and using it is contrary to X's terms of
-  service. It is also rate limited, so a handful of accounts works much better
-  than dozens. If you would rather stay inside the sanctioned path, switch the
-  source to **Official API** mode and supply a bearer token from a paid plan.
+- **Stale results are reported, not shown.** Guest access degrades quietly: X
+  keeps answering `200 OK` while serving an old slice of the timeline. Omni
+  refuses to present that as current — if the newest post is more than 45 days
+  old, the source reports an error instead of passing year-old posts off as
+  fresh, and points at whichever fix applies.
+- **Signing in carries real risk to that account.** Using an account outside
+  the official API is contrary to X's terms of service, and accounts have been
+  suspended for it. Use a secondary account rather than one you depend on.
+- **It is not a supported interface** and it is rate limited, so a handful of
+  accounts works much better than dozens. To stay inside the sanctioned path,
+  switch the source to **Official API** mode and supply a bearer token from a
+  paid plan.
 
 ## Building
 

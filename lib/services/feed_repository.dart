@@ -5,6 +5,7 @@ import '../models/feed_source.dart';
 import 'source_client.dart';
 import 'twitter_guest_config.dart';
 import 'twitter_guest_session.dart';
+import 'twitter_session_store.dart';
 
 class FeedResult {
   const FeedResult({required this.items, required this.errors});
@@ -27,10 +28,30 @@ class FeedRepository {
   /// Twitter source instead of activating a token per account.
   final _twitterSession = TwitterGuestSession();
 
+  /// Replies to [item], asked of whichever source produced it.
+  Future<List<ThreadEntry>> fetchThread(
+    FeedItem item,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
+  }) async {
+    final source = sources.where((s) => s.id == item.sourceId).firstOrNull;
+    if (source == null) return const [];
+
+    return SourceClient.forSource(
+      source,
+      _http,
+      twitterConfig: twitterConfig,
+      twitterSession: _twitterSession,
+      twitterAccount: twitterAccount,
+    ).fetchThread(item);
+  }
+
   Future<FeedResult> fetchAll(
     List<FeedSource> sources, {
     int limitPerSource = 40,
     TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
   }) async {
     final enabled = sources.where((s) => s.enabled).toList();
     final errors = <String>[];
@@ -42,6 +63,7 @@ class FeedRepository {
           _http,
           twitterConfig: twitterConfig,
           twitterSession: _twitterSession,
+          twitterAccount: twitterAccount,
         ).fetchLatest(limit: limitPerSource);
       } on SourceFetchException catch (e) {
         errors.add(e.toString());

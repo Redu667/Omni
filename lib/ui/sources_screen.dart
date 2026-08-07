@@ -97,10 +97,10 @@ class SourcesScreen extends StatelessWidget {
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.open_in_new),
-            title: const Text('Open posts in Omni'),
+            title: const Text('Open originals in Omni'),
             subtitle: const Text(
-                'Off sends every tap to your browser. Long-press a post to '
-                'open it externally either way.'),
+                'Posts always open natively. This controls where "View '
+                'original" goes — Omni\'s built-in browser, or yours.'),
             value: state.openInApp,
             onChanged: state.setOpenInApp,
           ),

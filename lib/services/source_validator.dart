@@ -5,6 +5,7 @@ import '../models/network.dart';
 import 'feed_discovery.dart';
 import 'source_client.dart';
 import 'twitter_guest_config.dart';
+import 'twitter_session_store.dart';
 
 /// Test-fetches a source before it's saved, so misconfiguration fails at
 /// add time with a clear message instead of silently later.
@@ -20,9 +21,11 @@ class SourceValidator {
   Future<FeedSource> validate(
     FeedSource source, {
     TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
   }) async {
     try {
-      await SourceClient.forSource(source, _http, twitterConfig: twitterConfig)
+      await SourceClient.forSource(source, _http,
+              twitterConfig: twitterConfig, twitterAccount: twitterAccount)
           .fetchLatest(limit: 5);
       return source;
     } on SourceFetchException {

@@ -60,7 +60,11 @@ class RssClient extends SourceClient {
         }
       }
 
+      // content:encoded carries the full article when a feed publishes it;
+      // description is usually just a teaser.
+      final encoded = item.getElement('content:encoded')?.innerText.trim() ?? '';
       final description = htmlToPlainText(text('description'));
+      final full = htmlToPlainText(encoded.isNotEmpty ? encoded : text('description'));
       final guid = text('guid');
       final link = text('link');
 
@@ -73,6 +77,7 @@ class RssClient extends SourceClient {
         text: description.length > 500
             ? '${description.substring(0, 500)}…'
             : description,
+        fullText: full.length > description.length ? full : null,
         url: link.isNotEmpty ? link : null,
         imageUrls: images,
         context: feedTitle,
@@ -114,6 +119,7 @@ class RssClient extends SourceClient {
         author: author,
         title: htmlToPlainText(text('title')),
         text: summary.length > 500 ? '${summary.substring(0, 500)}…' : summary,
+        fullText: summary.length > 500 ? summary : null,
         url: link,
         context: feedTitle,
         createdAt: parseRfc822OrIso(

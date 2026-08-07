@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/twitter_guest_config.dart';
+import '../services/twitter_session_store.dart';
 import '../state/app_state.dart';
+import 'twitter_login_screen.dart';
 
 /// Lets the user refresh the values X rotates out from under anonymous
 /// clients. Without this screen, every rotation would need an app release.
@@ -135,7 +137,19 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+          _AccountSection(),
           const SizedBox(height: 20),
+          Text('Advanced', style: theme.textTheme.titleSmall),
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 16),
+            child: Text(
+              'Only needed if fetches start failing. Signing in above fixes '
+              'most problems on its own.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.outline),
+            ),
+          ),
           _Field(
             controller: _userTweets,
             label: 'UserTweets query ID',
@@ -180,6 +194,84 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
                 ?.copyWith(color: theme.colorScheme.outline),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Sign-in is the headline control here: X serves live timelines to accounts
+/// and increasingly stale ones to anonymous callers.
+class _AccountSection extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final state = context.watch<AppState>();
+    final account = state.twitterAccount;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(account != null ? Icons.check_circle : Icons.person_outline,
+                    color: account != null
+                        ? Colors.green
+                        : theme.colorScheme.outline),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    account != null ? 'Signed in to X' : 'Not signed in',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              account != null
+                  ? 'Timelines are fetched as your account, which is what keeps '
+                      'them current.'
+                  : 'Anonymous access is served a stale timeline by X — often '
+                      'posts a year old. Signing in fetches the live one.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            if (account == null)
+              FilledButton.icon(
+                icon: const Icon(Icons.login, size: 18),
+                label: const Text('Sign in to X'),
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final appState = context.read<AppState>();
+                  final session = await Navigator.of(context).push<TwitterSession>(
+                    MaterialPageRoute(
+                        builder: (_) => const TwitterLoginScreen()),
+                  );
+                  if (session == null) return;
+                  await appState.signInToTwitter(session);
+                  messenger.showSnackBar(
+                      const SnackBar(content: Text('Signed in to X.')));
+                },
+              )
+            else
+              OutlinedButton.icon(
+                icon: const Icon(Icons.logout, size: 18),
+                label: const Text('Sign out'),
+                onPressed: () => context.read<AppState>().signOutOfTwitter(),
+              ),
+            const SizedBox(height: 10),
+            Text(
+              'Using an account this way is against X\'s terms of service, and '
+              'accounts have been suspended for it. Consider a secondary '
+              'account rather than one you rely on.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.error),
+            ),
+          ],
+        ),
       ),
     );
   }

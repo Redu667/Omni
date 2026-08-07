@@ -11,6 +11,7 @@ import 'twitter_client.dart';
 import 'twitter_guest_client.dart';
 import 'twitter_guest_config.dart';
 import 'twitter_guest_session.dart';
+import 'twitter_session_store.dart';
 
 /// Fetches the latest posts for one configured [FeedSource].
 abstract class SourceClient {
@@ -21,6 +22,12 @@ abstract class SourceClient {
 
   Future<List<FeedItem>> fetchLatest({int limit = 40});
 
+  /// Replies to [item], flattened with nesting depth. Networks that have no
+  /// notion of a thread (RSS) return nothing, which the detail view treats
+  /// as "no discussion", not as a failure.
+  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async =>
+      const [];
+
   /// Twitter sources come in two flavours: [TwitterGuestClient] (anonymous,
   /// no API plan) and [TwitterClient] (official API v2, paid). [twitterConfig]
   /// and [twitterSession] are only consulted for the anonymous path.
@@ -29,6 +36,7 @@ abstract class SourceClient {
     http.Client httpClient, {
     TwitterGuestConfig? twitterConfig,
     TwitterGuestSession? twitterSession,
+    TwitterSession? twitterAccount,
   }) =>
       switch (source.network) {
         Network.mastodon => MastodonClient(source, httpClient),
@@ -42,6 +50,7 @@ abstract class SourceClient {
                 httpClient,
                 config: twitterConfig ?? TwitterGuestConfig.defaults,
                 session: twitterSession ?? TwitterGuestSession(),
+                account: twitterAccount,
               ),
       };
 }
