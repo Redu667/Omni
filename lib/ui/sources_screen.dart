@@ -93,10 +93,25 @@ class SourcesScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: state.sources.isEmpty
-          ? const Center(child: Text('No sources yet.'))
-          : ListView(
-              children: [
+      body: ListView(
+        children: [
+          SwitchListTile(
+            secondary: const Icon(Icons.open_in_new),
+            title: const Text('Open posts in Omni'),
+            subtitle: const Text(
+                'Off sends every tap to your browser. Long-press a post to '
+                'open it externally either way.'),
+            value: state.openInApp,
+            onChanged: state.setOpenInApp,
+          ),
+          const Divider(height: 1),
+          if (state.sources.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: Text('No sources yet.')),
+            )
+          else
+            ...[
                 for (final source in state.sources)
                   ListTile(
                     leading: CircleAvatar(
@@ -147,8 +162,9 @@ class SourcesScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-              ],
-            ),
+            ],
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         tooltip: 'Add source',
         onPressed: () => Navigator.of(context).push(
