@@ -19,7 +19,7 @@ import 'twitter_settings_screen.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const _version = '0.8.0';
+  static const _version = '0.8.1';
 
   Future<void> _importOpml(BuildContext context) async {
     final state = context.read<AppState>();
