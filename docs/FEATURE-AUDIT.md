@@ -153,7 +153,7 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 | Feed auto-discovery | ✓ | Paste a site URL, Omni finds the feed. |
 | OPML import | ✓ | |
 | **OPML export** | ✓ | Settings → Export OPML. |
-| **Full-text extraction** | ✗ | Truncated feeds stay truncated. A readability pass would fix the many feeds that publish only a teaser. |
+| **Full-text extraction** | ✓ | A truncated post offers to go and get the article. Block elements are scored by how much prose they hold and discounted for being mostly links, so navigation and "related posts" don't win. It's a heuristic — when it can't find an article it says so, including that a paywall is one reason, rather than showing a confident wrong answer. |
 | **Folders / categories** | ◐ | Collections group feeds (and everything else) across networks. OPML folder structure is still discarded on import. |
 | **Unread counts per feed** | ✗ | |
 | **Podcast enclosures** | ◐ | Audio enclosures play, with the episode's own art or the show's standing in for a picture, and `itunes:duration` read in either `HH:MM:SS` or plain seconds. No queue, no playback position, no background audio. |
@@ -169,6 +169,5 @@ Ordered by value-per-effort rather than by how impressive they sound.
 
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
 2. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Needs a decision about which copy to keep: the subreddit has the discussion, the feed has the full text.
-3. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
-4. **Saving an image to the device** — the image viewer can show one but not keep it.
-5. **Per-source refresh interval** — everything refreshes together, on demand only.
+3. **Saving an image to the device** — the image viewer can show one but not keep it.
+4. **Per-source refresh interval** — everything refreshes together, on demand only. Only worth having alongside background refresh, and probably not even then.

@@ -6,6 +6,7 @@ import '../models/feed_filters.dart';
 import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_cache.dart';
+import '../services/article_fetcher.dart';
 import '../services/feed_repository.dart';
 import '../services/reddit_auth.dart';
 import '../services/saved_store.dart';
@@ -28,7 +29,9 @@ class AppState extends ChangeNotifier {
     FeedCache? cache,
     RedditCredentialStore? redditCredentials,
     RedditAuth? redditAuth,
-  })  : _repository = repository ??
+    ArticleFetcher? articleFetcher,
+  })  : _articles = articleFetcher ?? ArticleFetcher(),
+        _repository = repository ??
             FeedRepository(redditAuth: redditAuth ?? RedditAuth()),
         _store = store ?? SourceStore(),
         _validator = validator ??
@@ -49,6 +52,10 @@ class AppState extends ChangeNotifier {
   final SavedStore _savedStore;
   final FeedCache _cache;
   final RedditCredentialStore _redditCredentials;
+  final ArticleFetcher _articles;
+
+  /// Fetches and extracts the article a truncated feed only linked to.
+  Future<String> fetchArticle(String url) => _articles.fetch(url);
 
   String? _redditClientId;
 

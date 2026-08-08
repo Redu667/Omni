@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
+import '../services/article_fetcher.dart';
 import '../services/thread_folding.dart';
 import '../state/app_state.dart';
 import 'emoji_text.dart';
@@ -288,11 +289,59 @@ class _PostBody extends StatefulWidget {
 class _PostBodyState extends State<_PostBody> {
   bool _revealed = false;
 
+  /// The article fetched from the original page, when the feed only
+  /// published a teaser.
+  String? _article;
+  String? _articleError;
+  bool _loadingArticle = false;
+
+  /// Feeds that publish the whole thing don't need the button; neither do
+  /// the social networks, where the post *is* the content.
+  bool get _offersFullArticle {
+    final item = widget.item;
+    if (item.network != Network.rss || item.url == null) return false;
+    if (_article != null) return false;
+    // A few paragraphs is a teaser. Much more than that and the feed is
+    // already giving you the article.
+    return item.body.length < 1200;
+  }
+
+  Future<void> _loadArticle() async {
+    final url = widget.item.url;
+    if (url == null) return;
+
+    setState(() {
+      _loadingArticle = true;
+      _articleError = null;
+    });
+    try {
+      final text = await context.read<AppState>().fetchArticle(url);
+      if (!mounted) return;
+      setState(() {
+        _article = text;
+        _loadingArticle = false;
+      });
+    } on ArticleException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _articleError = e.message;
+        _loadingArticle = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _articleError = "Couldn't read that page.";
+        _loadingArticle = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final item = widget.item;
     final hidden = item.needsReveal && !_revealed;
+    final body = _article ?? item.body;
 
     return Container(
       margin: const EdgeInsets.only(top: 4),
@@ -435,21 +484,30 @@ class _PostBodyState extends State<_PostBody> {
                 ),
               ),
             ),
-          if (item.body.isNotEmpty && !hidden)
+          if (body.isNotEmpty && !hidden)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: item.emojis.isEmpty
                   ? SelectableText(
-                      item.body,
+                      body,
                       style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
                     )
                   // Custom emoji need inline images, which selectable text
                   // can't carry — the pictures matter more here.
                   : EmojiText(
-                      item.body,
+                      body,
                       emojis: item.emojis,
                       style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
                     ),
+            ),
+          if (!hidden && _offersFullArticle)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: _FullArticleButton(
+                loading: _loadingArticle,
+                error: _articleError,
+                onPressed: _loadArticle,
+              ),
             ),
           if (item.imageUrls.isNotEmpty && !hidden)
             Padding(
@@ -930,6 +988,54 @@ class _AncestorTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Offers to go and get the article a truncated feed only teased.
+class _FullArticleButton extends StatelessWidget {
+  const _FullArticleButton({
+    required this.loading,
+    required this.error,
+    required this.onPressed,
+  });
+
+  final bool loading;
+  final String? error;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              error!,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.error),
+            ),
+          ),
+        OutlinedButton.icon(
+          onPressed: loading ? null : onPressed,
+          icon: loading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.article_outlined, size: 18),
+          label: Text(loading
+              ? 'Fetching…'
+              : error == null
+                  ? 'Read the full article'
+                  : 'Try again'),
+        ),
+      ],
     );
   }
 }
