@@ -234,7 +234,7 @@ class _FeedState extends State<_Feed> {
     }
 
     return RefreshIndicator(
-      onRefresh: state.refresh,
+      onRefresh: () => state.refresh(force: true),
       child: Column(
         children: [
           if (state.loading) const LinearProgressIndicator(minHeight: 2),
@@ -274,7 +274,8 @@ class _FeedState extends State<_Feed> {
               leading: const Icon(Icons.warning_amber),
               actions: [
                 TextButton(
-                  onPressed: state.refresh,
+                  // "Retry" has to mean retry, backoff or not.
+                  onPressed: () => state.refresh(force: true),
                   child: const Text('Retry'),
                 ),
               ],

@@ -20,7 +20,7 @@ How Omni behaves when a service says no, which on Reddit and X is often.
 | **Per-source health** | ✓ | Consecutive failures and last success tracked, so a blip reads differently from a week-long outage. |
 | **Reddit authentication** | ✓ | An optional app ID makes requests authenticated, which is the actual fix for its 403s rather than the Atom fallback's damage limitation. |
 | **Conditional requests** | ◐ | RSS sends `If-None-Match`/`If-Modified-Since` and reuses parsed items on a 304. Not yet applied to the JSON APIs. |
-| **Per-source retry scheduling** | ✗ | A persistently failing source is retried as often as a healthy one. |
+| **Per-source retry scheduling** | ✓ | A source that keeps refusing is left alone for a while — two minutes, then five, fifteen, thirty — rather than being asked on every refresh. Hammering a 403 is how a temporary block becomes a lasting one. The first two failures cost nothing, the delay is capped so a source is never abandoned, and pull-to-refresh or Retry overrides it. |
 | **Offline detection** | ✗ | No connectivity awareness; a refresh with no signal fails per-source rather than being skipped. |
 
 ## Cross-cutting — affects every source

@@ -448,14 +448,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh() async {
+  /// [force] bypasses the per-source retry backoff, because someone
+  /// watching the screen and pulling to refresh is asking for a real
+  /// attempt rather than a policy.
+  Future<void> refresh({bool force = false}) async {
     if (_loading) return;
     _loading = true;
     _errors = [];
     notifyListeners();
 
     final result = await _repository.fetchAll(_sources,
-        twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
+        twitterConfig: _twitterConfig,
+        twitterAccount: _twitterAccount,
+        force: force);
     // A refresh that failed everywhere shouldn't wipe a usable cache.
     if (result.items.isEmpty && result.errors.isNotEmpty && _items.isNotEmpty) {
       _errors = result.errors;

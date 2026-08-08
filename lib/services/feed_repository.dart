@@ -157,6 +157,7 @@ class FeedRepository {
     TwitterGuestConfig? twitterConfig,
     TwitterSession? twitterAccount,
     Map<String, String>? cursors,
+    bool force = false,
   }) async {
     final loadingMore = cursors != null;
     final enabled = sources
@@ -169,6 +170,18 @@ class FeedRepository {
     final now = DateTime.now();
 
     final results = await Future.wait(enabled.map((source) async {
+      // A source that just refused isn't asked again straight away.
+      // Hammering a 403 is how a temporary block becomes a lasting one,
+      // and its last posts are shown either way.
+      if (!healthOf(source.id).shouldFetchAt(now, force: force)) {
+        final held = loadingMore ? null : _lastGood[source.id];
+        if (held != null && held.isNotEmpty) {
+          stale.add(source.id);
+          return held;
+        }
+        return const <FeedItem>[];
+      }
+
       try {
         final page = await SourceClient.forSource(
           source,
@@ -188,10 +201,10 @@ class FeedRepository {
         return page.items;
       } on SourceFetchException catch (e) {
         errors.add(e.toString());
-        _health[source.id] = healthOf(source.id).failed(e.message);
+        _health[source.id] = healthOf(source.id).failed(e.message, now);
       } catch (e) {
         errors.add('${source.displayName}: ${e.toString()}');
-        _health[source.id] = healthOf(source.id).failed(e.toString());
+        _health[source.id] = healthOf(source.id).failed(e.toString(), now);
       }
 
       // Show what this source last gave us rather than dropping it out of
