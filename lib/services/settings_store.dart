@@ -97,8 +97,8 @@ class SettingsStore {
 
   /// How often to fetch in the background, in minutes. Null means never.
   ///
-  /// Android refuses anything under fifteen minutes and treats the value as
-  /// a request rather than a promise.
+  /// A request rather than a promise: the alarm is inexact, so Android
+  /// batches it with other work and defers it in doze.
   Future<int?> loadBackgroundMinutes() async {
     final prefs = await SharedPreferences.getInstance();
     final value = prefs.getInt(_backgroundIntervalKey);

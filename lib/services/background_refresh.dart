@@ -1,5 +1,5 @@
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter/widgets.dart';
-import 'package:workmanager/workmanager.dart';
 
 import '../models/feed_item.dart';
 import '../models/feed_source.dart';
@@ -14,10 +14,14 @@ import 'twitter_session_store.dart';
 /// Fetching while Omni is closed, so a post can be announced rather than
 /// waiting to be discovered on the next launch.
 ///
-/// Android will not run this more often than every fifteen minutes and is
-/// free to run it less often than asked — the interval is a request, not a
-/// promise, and battery optimisation may defer it for hours.
-const backgroundTaskName = 'dev.omni.refresh';
+/// The alarm is inexact and doesn't wake the device: Android is free to
+/// batch it with other work and defer it, which for a feed is the right
+/// trade. The interval is a request, not a promise.
+///
+/// This uses AlarmManager rather than WorkManager, which would otherwise be
+/// the obvious choice — see the note on [BackgroundRefresh].
+/// Any stable integer; it only has to be the same one used to cancel.
+const backgroundAlarmId = 6461;
 
 /// What one background run decided to announce.
 typedef Announcement = ({FeedSource source, int count, String preview});
@@ -67,47 +71,47 @@ String _previewOf(FeedItem item) {
   return text.length > 120 ? '${text.substring(0, 120)}…' : text;
 }
 
-/// Registers the periodic task, or cancels it when switched off.
+/// Schedules the periodic fetch, or cancels it when switched off.
 ///
-/// Cancelling and re-registering on every change is deliberate: Android
-/// keeps the old schedule otherwise, and a stale fifteen-minute task
-/// outliving the setting that created it is worse than a missed refresh.
+/// WorkManager would be the conventional choice and gives better battery
+/// behaviour, but the `workmanager` package can't be used here: 0.10.x
+/// requires a newer Flutter SDK than this project targets, every reachable
+/// 0.9.x has a platform implementation that doesn't match its own
+/// interface, and 0.5.x still uses Flutter's v1 Android embedding, which
+/// the engine removed. AlarmManager is the working alternative.
 class BackgroundRefresh {
   const BackgroundRefresh();
 
   Future<void> enable(Duration interval) async {
-    await Workmanager().cancelByUniqueName(backgroundTaskName);
-    await Workmanager().registerPeriodicTask(
-      backgroundTaskName,
-      backgroundTaskName,
-      frequency: interval,
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-        // Fetching five networks on a nearly flat phone is not worth it.
-        requiresBatteryNotLow: true,
-      ),
-      existingWorkPolicy: ExistingWorkPolicy.replace,
+    await AndroidAlarmManager.cancel(backgroundAlarmId);
+    await AndroidAlarmManager.periodic(
+      interval,
+      backgroundAlarmId,
+      onBackgroundAlarm,
+      // Inexact and without a wakeup: a feed refresh is not worth pulling
+      // the device out of doze for, and Android batches inexact alarms
+      // with other work.
+      exact: false,
+      wakeup: false,
+      // Otherwise a restart silently ends background refresh, and the
+      // setting would claim to be on while nothing happened.
+      rescheduleOnReboot: true,
     );
   }
 
-  Future<void> disable() =>
-      Workmanager().cancelByUniqueName(backgroundTaskName);
+  Future<void> disable() => AndroidAlarmManager.cancel(backgroundAlarmId);
 }
 
-/// The entry point Android calls. Runs in its own isolate with none of the
-/// app's state, so everything it needs is loaded from disk.
+/// The entry point Android calls, in its own isolate with none of the app's
+/// state — so everything it needs is loaded from disk.
 @pragma('vm:entry-point')
-void backgroundCallbackDispatcher() {
-  Workmanager().executeTask((task, _) async {
-    if (task != backgroundTaskName) return true;
-    try {
-      await runBackgroundRefresh();
-    } catch (_) {
-      // Returning false asks Android to retry, which for a feed refresh
-      // just burns battery — the next scheduled run is soon enough.
-    }
-    return true;
-  });
+Future<void> onBackgroundAlarm() async {
+  try {
+    await runBackgroundRefresh();
+  } catch (_) {
+    // A failed refresh is not worth retrying off-schedule; the next alarm
+    // is soon enough, and retrying would only burn battery.
+  }
 }
 
 /// One background refresh: fetch the sources that opted in, announce

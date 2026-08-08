@@ -379,8 +379,9 @@ class _BackgroundRefreshTile extends StatelessWidget {
                     'sources are worth interrupting you for, in Manage '
                     'sources.'
                 : state.anySourceNotifies
-                    ? 'Android treats this as a request rather than a '
-                        'promise, and may run it less often to save battery.'
+                    ? 'A request rather than a promise — Android batches '
+                        'this with other work and will run it less often to '
+                        'save battery.'
                     : 'No source is set to notify yet, so this will fetch '
                         'quietly and tell you nothing. Pick the ones worth '
                         'interrupting you for in Manage sources.',

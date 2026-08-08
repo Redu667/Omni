@@ -616,8 +616,9 @@ class AppState extends ChangeNotifier {
   /// How often Omni fetches while closed, in minutes. Null means never.
   int? get backgroundMinutes => _backgroundMinutes;
 
-  /// The intervals offered. Android refuses anything under fifteen minutes,
-  /// and treats what it is given as a request rather than a promise.
+  /// The intervals offered. Fifteen minutes is Omni's own floor rather than
+  /// Android's — anything shorter would be deferred into meaninglessness by
+  /// doze while still costing battery to attempt.
   static const backgroundIntervals = <int, String>{
     15: 'Every 15 minutes',
     30: 'Every 30 minutes',
