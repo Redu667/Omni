@@ -6,18 +6,24 @@ import 'package:xml/xml.dart';
 import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../util/text.dart';
+import 'reddit_auth.dart';
 import 'source_client.dart';
 
 /// Reddit via the public JSON listing API (no account needed).
 ///
 /// `subreddit` may combine several with '+', e.g. "flutter+androiddev".
 class RedditClient extends SourceClient {
-  const RedditClient(super.source, super.httpClient);
+  RedditClient(super.source, super.httpClient, {this.auth});
+
+  /// When configured, requests go to oauth.reddit.com with a bearer token,
+  /// which is not subject to the blocking anonymous callers get.
+  final RedditAuth? auth;
 
   /// Reddit turns away clients that don't look like a browser, so present as
   /// one. old.reddit.com serves the same JSON and is markedly less
   /// aggressive about blocking, which is why it's tried as a fallback.
   static const _hosts = ['www.reddit.com', 'old.reddit.com'];
+  static const _oauthHost = 'oauth.reddit.com';
 
   static const _headers = {
     'User-Agent':
@@ -27,10 +33,56 @@ class RedditClient extends SourceClient {
     'Accept-Language': 'en-US,en;q=0.9',
   };
 
+  /// Adds the bearer token when one is available. Returns null when Reddit
+  /// isn't configured, so callers know to use the anonymous hosts.
+  Future<Map<String, String>?> _authHeaders() async {
+    if (auth == null) return null;
+    try {
+      final token = await auth!.token();
+      if (token == null) return null;
+      return {
+        ..._headers,
+        'Authorization': 'Bearer $token',
+        'User-Agent': RedditAuth.userAgent,
+      };
+    } on RedditAuthException {
+      // A bad client id shouldn't break the source; fall back to anonymous
+      // and let the usual blocked-path handling take over.
+      return null;
+    }
+  }
+
   @override
   Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
     final subreddit = source.params['subreddit']!.replaceAll(RegExp(r'^/?r/'), '');
     final sort = source.params['sort'] ?? 'hot';
+
+    // "Top of all time" and "top of today" are entirely different feeds, and
+    // Reddit defaults to the day. Only top and controversial take a window.
+    final window = source.params['t'];
+    final windowed =
+        (sort == 'top' || sort == 'controversial') && window != null;
+
+    // Authenticated first: it isn't blocked, and it carries the full
+    // listing rather than the Atom feed's reduced fields.
+    final authHeaders = await _authHeaders();
+    if (authHeaders != null) {
+      final res = await httpClient.get(
+        Uri.https(_oauthHost, '/r/$subreddit/$sort', {
+          'limit': '$limit',
+          'raw_json': '1',
+          if (windowed) 't': window,
+          if (cursor != null) 'after': cursor,
+        }),
+        headers: authHeaders,
+      );
+      if (res.statusCode == 200) {
+        final parsed = _tryParse(res);
+        if (parsed != null) return parsed;
+      }
+      if (res.statusCode == 401) auth?.invalidate();
+      // Anything else falls through to the anonymous path below.
+    }
 
     // Why we gave up, kept so the final message says "rate limited" rather
     // than "private or quarantined" when those are very different problems.
@@ -42,6 +94,7 @@ class RedditClient extends SourceClient {
         Uri.https(host, '/r/$subreddit/$sort.json', {
           'limit': '$limit',
           'raw_json': '1',
+          if (windowed) 't': window,
           if (cursor != null) 'after': cursor,
         }),
         headers: _headers,
@@ -177,6 +230,50 @@ class RedditClient extends SourceClient {
   }
 
   @override
+  bool get supportsSearch => true;
+
+  @override
+  Future<List<FeedItem>> search(String query, {int limit = 40}) async {
+    final subreddit =
+        source.params['subreddit']!.replaceAll(RegExp(r'^/?r/'), '');
+
+    // Scoped to this source's subreddit rather than all of Reddit: the
+    // source is what the reader added, and site-wide results would drown
+    // out the ones they were looking for.
+    final params = {
+      'q': query,
+      'restrict_sr': '1',
+      'sort': 'relevance',
+      'limit': '$limit',
+      'raw_json': '1',
+    };
+
+    final authHeaders = await _authHeaders();
+    if (authHeaders != null) {
+      final res = await httpClient.get(
+          Uri.https(_oauthHost, '/r/$subreddit/search', params),
+          headers: authHeaders);
+      if (res.statusCode == 200) {
+        final parsed = _tryParse(res);
+        if (parsed != null) return parsed.items;
+      }
+      if (res.statusCode == 401) auth?.invalidate();
+    }
+
+    for (final host in _hosts) {
+      final res = await httpClient.get(
+          Uri.https(host, '/r/$subreddit/search.json', params),
+          headers: _headers);
+      if (res.statusCode != 200) continue;
+      final parsed = _tryParse(res);
+      if (parsed != null) return parsed.items;
+    }
+    // Search has no Atom fallback, and an empty result reads better in a
+    // search box than an error about a subreddit the reader can already see.
+    return const [];
+  }
+
+  @override
   bool get supportsAuthorFeed => true;
 
   @override
@@ -199,7 +296,18 @@ class RedditClient extends SourceClient {
   }
 
   @override
-  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
+  Map<String, String> get commentSorts => const {
+        'confidence': 'Best',
+        'top': 'Top',
+        'new': 'New',
+        'old': 'Old',
+        'controversial': 'Controversial',
+        'qa': 'Q&A',
+      };
+
+  @override
+  Future<PostThread> fetchThread(FeedItem item,
+      {int limit = 100, String? sort}) async {
     final permalink = item.nativeId ?? item.url;
     if (permalink == null) return PostThread.empty;
 
@@ -208,8 +316,11 @@ class RedditClient extends SourceClient {
 
     for (final host in _hosts) {
       final res = await httpClient.get(
-        Uri.https(host, '${path.replaceAll(RegExp(r'/$'), '')}.json',
-            {'limit': '$limit', 'raw_json': '1', 'sort': 'top'}),
+        Uri.https(host, '${path.replaceAll(RegExp(r'/$'), '')}.json', {
+          'limit': '$limit',
+          'raw_json': '1',
+          'sort': commentSorts.containsKey(sort) ? sort! : 'confidence',
+        }),
         headers: _headers,
       );
       if (res.statusCode != 200) continue;
@@ -225,34 +336,42 @@ class RedditClient extends SourceClient {
       if (decoded is! List || decoded.length < 2) continue;
       final listings = decoded;
 
-
       final entries = <ThreadEntry>[];
-      _collectComments(
+      final root = _collectComments(
         (listings[1] as Map<String, dynamic>)['data'] as Map<String, dynamic>?,
         0,
         entries,
         limit,
       );
       // A Reddit post is always the root of its own thread.
-      return PostThread(replies: entries);
+      return PostThread(replies: entries, more: root);
     }
     return PostThread.empty;
   }
 
   /// Reddit nests replies as listings inside each comment, so walk down and
   /// flatten, carrying the depth for indentation.
-  void _collectComments(
+  ///
+  /// Returns this listing's own `more` stub — the comments Reddit truncated
+  /// at this level — so the caller can offer to load them.
+  MoreReplies? _collectComments(
     Map<String, dynamic>? listing,
     int depth,
     List<ThreadEntry> out,
     int limit,
   ) {
-    if (listing == null || out.length >= limit) return;
+    if (listing == null || out.length >= limit) return null;
 
+    MoreReplies? truncated;
     for (final child in (listing['children'] as List? ?? const [])
         .cast<Map<String, dynamic>>()) {
-      if (out.length >= limit) return;
+      if (out.length >= limit) return truncated;
+
       // "more" placeholders stand in for unloaded replies, not content.
+      if (child['kind'] == 'more') {
+        truncated = _moreFrom(child['data'] as Map<String, dynamic>?, depth);
+        continue;
+      }
       if (child['kind'] != 't1') continue;
 
       final data = child['data'] as Map<String, dynamic>?;
@@ -261,30 +380,133 @@ class RedditClient extends SourceClient {
       final bodyText = data['body'] as String? ?? '';
       if (bodyText.isEmpty) continue;
 
+      final index = out.length;
       out.add(ThreadEntry(
         depth: depth,
-        item: FeedItem(
-          id: '${source.id}:${data['name'] ?? data['id']}',
-          sourceId: source.id,
-          network: Network.reddit,
-          author: 'u/${data['author'] ?? '[deleted]'}',
-          text: htmlToPlainText(bodyText),
-          url: data['permalink'] != null
-              ? 'https://www.reddit.com${data['permalink']}'
-              : null,
-          likes: data['score'] as int?,
-          createdAt: DateTime.fromMillisecondsSinceEpoch(
-              (((data['created_utc'] as num?)?.toDouble() ?? 0) * 1000).round(),
-              isUtc: true),
-        ),
+        item: _commentItem(data),
       ));
 
       final replies = data['replies'];
       if (replies is Map<String, dynamic>) {
-        _collectComments(
+        final nested = _collectComments(
             replies['data'] as Map<String, dynamic>?, depth + 1, out, limit);
+        // Hangs off the comment whose replies were cut short, so the button
+        // appears where the missing replies belong.
+        if (nested != null) out[index] = out[index].withMore(nested);
       }
     }
+    return truncated;
+  }
+
+  static MoreReplies? _moreFrom(Map<String, dynamic>? data, int depth) {
+    if (data == null) return null;
+    final ids = (data['children'] as List? ?? const [])
+        .map((c) => c.toString())
+        .where((c) => c.isNotEmpty)
+        .toList();
+    if (ids.isEmpty) return null;
+    return MoreReplies(
+      count: (data['count'] as num?)?.toInt() ?? ids.length,
+      ids: ids,
+      depth: depth,
+    );
+  }
+
+  FeedItem _commentItem(Map<String, dynamic> data) => FeedItem(
+        id: '${source.id}:${data['name'] ?? data['id']}',
+        sourceId: source.id,
+        network: Network.reddit,
+        author: 'u/${data['author'] ?? '[deleted]'}',
+        text: htmlToPlainText(data['body'] as String? ?? ''),
+        url: data['permalink'] != null
+            ? 'https://www.reddit.com${data['permalink']}'
+            : null,
+        likes: data['score'] as int?,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+            (((data['created_utc'] as num?)?.toDouble() ?? 0) * 1000).round(),
+            isUtc: true),
+      );
+
+  @override
+  Future<List<ThreadEntry>> fetchMoreReplies(FeedItem item, MoreReplies more,
+      {String? sort}) async {
+    // The post's fullname is what morechildren keys on, and the permalink is
+    // the only place we reliably have its id — nativeId is a path from the
+    // JSON API and an absolute URL from the Atom fallback, so parse both.
+    final segments = Uri.parse(item.nativeId ?? item.url ?? '').pathSegments;
+    final at = segments.indexOf('comments');
+    final postId =
+        at >= 0 ? segments.elementAtOrNull(at + 1) : null;
+    if (postId == null || postId.isEmpty || more.isEmpty) return const [];
+    final linkId = 't3_$postId';
+
+    // Reddit caps a morechildren request at 100 ids; the rest stays behind
+    // the next button.
+    final batch = more.ids.take(100).join(',');
+
+    for (final host in _hosts) {
+      final res = await httpClient.get(
+        Uri.https(host, '/api/morechildren.json', {
+          'api_type': 'json',
+          'link_id': linkId,
+          'children': batch,
+          'raw_json': '1',
+          'sort': commentSorts.containsKey(sort) ? sort! : 'confidence',
+        }),
+        headers: _headers,
+      );
+      if (res.statusCode != 200) continue;
+
+      final Object? decoded;
+      try {
+        decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      } on FormatException {
+        continue;
+      }
+      if (decoded is! Map<String, dynamic>) continue;
+
+      final things = ((decoded['json'] as Map<String, dynamic>?)?['data']
+          as Map<String, dynamic>?)?['things'] as List?;
+      if (things == null) continue;
+
+      return _flatten(things.cast<Map<String, dynamic>>(), more.depth);
+    }
+    return const [];
+  }
+
+  /// `morechildren` answers with a flat list rather than a tree, so depth has
+  /// to be rebuilt from each comment's parent. Reddit sends parents before
+  /// their children, which is what makes one pass enough.
+  List<ThreadEntry> _flatten(List<Map<String, dynamic>> things, int baseDepth) {
+    final depths = <String, int>{};
+    final out = <ThreadEntry>[];
+
+    for (final thing in things) {
+      final data = thing['data'] as Map<String, dynamic>?;
+      if (data == null) continue;
+
+      final parent = data['parent_id'] as String?;
+      final depth = parent != null && depths.containsKey(parent)
+          ? depths[parent]! + 1
+          : baseDepth;
+
+      if (thing['kind'] == 'more') {
+        // A nested truncation: attach it to the parent we already emitted.
+        final more = _moreFrom(data, depth);
+        final index =
+            out.lastIndexWhere((e) => e.item.id == '${source.id}:$parent');
+        if (more != null && index >= 0) out[index] = out[index].withMore(more);
+        continue;
+      }
+      if (thing['kind'] != 't1') continue;
+
+      final name = data['name'] as String?;
+      if (name != null) depths[name] = depth;
+
+      if ((data['body'] as String? ?? '').isEmpty) continue;
+      out.add(ThreadEntry(depth: depth, item: _commentItem(data)));
+    }
+    return out;
   }
 
   /// Returns null when the body isn't a Reddit listing — an HTML block page,
@@ -314,21 +536,15 @@ class RedditClient extends SourceClient {
   }
 
   FeedItem _toItem(Map<String, dynamic> post) {
-    final images = <MediaItem>[];
-    final preview = post['preview'] as Map<String, dynamic>?;
-    final previewImages = preview?['images'] as List?;
-    if (previewImages != null && previewImages.isNotEmpty) {
-      final url = ((previewImages.first as Map<String, dynamic>)['source']
-          as Map<String, dynamic>?)?['url'] as String?;
-      if (url != null) images.add(MediaItem(url: url));
-    } else {
-      final direct = post['url_overridden_by_dest'] as String? ?? '';
-      if (RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(direct)) {
-        images.add(MediaItem(url: direct));
-      }
-    }
+    // A crosspost carries its content on the original, not the wrapper,
+    // so an unresolved one renders as an empty post.
+    final crosspost = (post['crosspost_parent_list'] as List?)
+        ?.cast<Map<String, dynamic>>()
+        .firstOrNull;
+    final content = crosspost ?? post;
 
-    final selftext = post['selftext'] as String? ?? '';
+    final images = _imagesFrom(content);
+    final selftext = content['selftext'] as String? ?? '';
     final createdUtc = (post['created_utc'] as num?)?.toDouble() ?? 0;
 
     return FeedItem(
@@ -342,13 +558,115 @@ class RedditClient extends SourceClient {
       nativeId: post['permalink'] as String?,
       fullText: selftext.isNotEmpty ? selftext : null,
       sensitive: post['over_18'] as bool? ?? false,
+      flair: (post['link_flair_text'] as String?)?.trim().isNotEmpty == true
+          ? (post['link_flair_text'] as String).trim()
+          : null,
+      linkCard: _linkCardFrom(content),
       media: images,
       likes: post['ups'] as int?,
       replies: post['num_comments'] as int?,
+      repostedBy: crosspost == null
+          ? null
+          : 'crossposted from r/${crosspost['subreddit']}',
       context: 'r/${post['subreddit'] ?? source.params['subreddit']}',
       createdAt: DateTime.fromMillisecondsSinceEpoch(
           (createdUtc * 1000).round(),
           isUtc: true),
     );
   }
+
+  /// Gallery posts hold their images in media_metadata rather than preview,
+  /// so without this only one of several shows.
+  List<MediaItem> _imagesFrom(Map<String, dynamic> post) {
+    final images = <MediaItem>[];
+
+    // A v.redd.it post's preview image is just its poster frame, so the
+    // video has to be checked for first or the post reads as a still.
+    final video = _videoFrom(post);
+    if (video != null) return [video];
+
+    final galleryItems = (post['gallery_data']
+            as Map<String, dynamic>?)?['items'] as List?;
+    final metadata = post['media_metadata'] as Map<String, dynamic>?;
+    if (galleryItems != null && metadata != null) {
+      for (final entry in galleryItems.cast<Map<String, dynamic>>()) {
+        final meta = metadata[entry['media_id']] as Map<String, dynamic>?;
+        final url = (meta?['s'] as Map<String, dynamic>?)?['u'] as String?;
+        if (url != null) {
+          images.add(MediaItem(
+            url: unescapeHtml(url),
+            alt: (entry['caption'] as String?)?.trim().isNotEmpty == true
+                ? entry['caption'] as String
+                : null,
+          ));
+        }
+      }
+      if (images.isNotEmpty) return images;
+    }
+
+    final preview = post['preview'] as Map<String, dynamic>?;
+    final previewImages = preview?['images'] as List?;
+    if (previewImages != null && previewImages.isNotEmpty) {
+      final url = ((previewImages.first as Map<String, dynamic>)['source']
+          as Map<String, dynamic>?)?['url'] as String?;
+      if (url != null) images.add(MediaItem(url: unescapeHtml(url)));
+    } else {
+      final direct = post['url_overridden_by_dest'] as String? ?? '';
+      if (RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(direct)) {
+        images.add(MediaItem(url: direct));
+      }
+    }
+    return images;
+  }
+
+  /// Reddit-hosted video, which was previously dropped entirely — a
+  /// v.redd.it post arrived as a title and a still frame.
+  ///
+  /// Prefers the HLS playlist: `fallback_url` is video-only, so playing it
+  /// gives a silent clip, which is worse than an obvious failure.
+  static MediaItem? _videoFrom(Map<String, dynamic> post) {
+    final reddit = (post['secure_media'] as Map<String, dynamic>?)?[
+            'reddit_video'] as Map<String, dynamic>? ??
+        (post['media'] as Map<String, dynamic>?)?['reddit_video']
+            as Map<String, dynamic>? ??
+        (post['preview'] as Map<String, dynamic>?)?['reddit_video_preview']
+            as Map<String, dynamic>?;
+    if (reddit == null) return null;
+
+    final url = (reddit['hls_url'] ?? reddit['fallback_url']) as String?;
+    if (url == null) return null;
+
+    // A converted GIF has no audio track to miss, so the silent fallback is
+    // exactly right for it.
+    final isGif = reddit['is_gif'] == true;
+
+    return MediaItem(
+      url: unescapeHtml(url),
+      kind: isGif ? MediaKind.gif : MediaKind.video,
+      thumbnailUrl: _previewUrlOf(post),
+      durationSeconds: (reddit['duration'] as num?)?.round(),
+    );
+  }
+
+  static String? _previewUrlOf(Map<String, dynamic> post) {
+    final images = (post['preview'] as Map<String, dynamic>?)?['images']
+        as List?;
+    final url = images == null || images.isEmpty
+        ? null
+        : ((images.first as Map<String, dynamic>)['source']
+            as Map<String, dynamic>?)?['url'] as String?;
+    return url == null ? null : unescapeHtml(url);
+  }
+
+  /// A link post points somewhere; showing where is the point of it.
+  static LinkCard? _linkCardFrom(Map<String, dynamic> post) {
+    final dest = post['url_overridden_by_dest'] as String?;
+    if (dest == null || !dest.startsWith('http')) return null;
+    // Reddit-hosted media isn't an outbound link worth carding.
+    if (RegExp(r'(redd\.it|reddit\.com)').hasMatch(dest)) return null;
+    if (RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(dest)) return null;
+
+    return LinkCard(url: dest, title: Uri.tryParse(dest)?.host);
+  }
+
 }

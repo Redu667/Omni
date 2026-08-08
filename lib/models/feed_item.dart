@@ -1,23 +1,146 @@
 import 'network.dart';
 
-/// An image attached to a post, with the author's description of it.
+enum MediaKind {
+  image,
+
+  /// Plays with sound and controls.
+  video,
+
+  /// A silent looping clip — Mastodon `gifv`, X `animated_gif`, Reddit's
+  /// converted GIFs. Presented as a moving image rather than as a video.
+  gif,
+
+  /// A podcast episode or other audio enclosure. Plays through the same
+  /// machinery, showing cover art where a video would show a picture.
+  audio;
+
+  /// Whether opening this means playing it rather than looking at it.
+  bool get isPlayable => this != MediaKind.image;
+
+  static MediaKind fromName(String? name) => switch (name) {
+        'video' => MediaKind.video,
+        'gif' => MediaKind.gif,
+        'audio' => MediaKind.audio,
+        _ => MediaKind.image,
+      };
+}
+
+/// Something attached to a post, with the author's description of it.
 ///
 /// Alt text is carried rather than discarded: Mastodon and Bluesky both have
 /// strong alt-text cultures, and dropping it makes posts unreadable to
 /// anyone using a screen reader.
 class MediaItem {
-  const MediaItem({required this.url, this.alt});
+  const MediaItem({
+    required this.url,
+    this.alt,
+    this.kind = MediaKind.image,
+    this.thumbnailUrl,
+    this.durationSeconds,
+  });
 
+  /// The image itself, or the stream to play.
   final String url;
   final String? alt;
+  final MediaKind kind;
+
+  /// What to show before a video plays. Videos without one fall back to a
+  /// placeholder rather than a blank rectangle.
+  final String? thumbnailUrl;
+
+  final int? durationSeconds;
 
   bool get hasAlt => alt != null && alt!.trim().isNotEmpty;
 
-  Map<String, dynamic> toJson() => {'url': url, 'alt': alt};
+  /// What the timeline should show for this item: a video's poster frame,
+  /// or the image itself.
+  String get previewUrl => thumbnailUrl ?? url;
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'alt': alt,
+        if (kind != MediaKind.image) 'kind': kind.name,
+        if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
+        if (durationSeconds != null) 'durationSeconds': durationSeconds,
+      };
 
   factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
         url: json['url'] as String,
         alt: json['alt'] as String?,
+        kind: MediaKind.fromName(json['kind'] as String?),
+        thumbnailUrl: json['thumbnailUrl'] as String?,
+        durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
+      );
+}
+
+/// A link a post points at, with whatever preview the network provides.
+class LinkCard {
+  const LinkCard({required this.url, this.title, this.description, this.imageUrl});
+
+  final String url;
+  final String? title;
+  final String? description;
+  final String? imageUrl;
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'title': title,
+        'description': description,
+        'imageUrl': imageUrl,
+      };
+
+  factory LinkCard.fromJson(Map<String, dynamic> json) => LinkCard(
+        url: json['url'] as String,
+        title: json['title'] as String?,
+        description: json['description'] as String?,
+        imageUrl: json['imageUrl'] as String?,
+      );
+}
+
+/// One choice in a poll.
+class PollOption {
+  const PollOption({required this.title, this.votes = 0});
+
+  final String title;
+  final int votes;
+
+  Map<String, dynamic> toJson() => {'title': title, 'votes': votes};
+
+  factory PollOption.fromJson(Map<String, dynamic> json) => PollOption(
+        title: json['title'] as String? ?? '',
+        votes: json['votes'] as int? ?? 0,
+      );
+}
+
+/// A poll attached to a post. Without this, poll posts render as empty
+/// text — the question lives in the post body but the options don't.
+class Poll {
+  const Poll({required this.options, this.totalVotes = 0, this.expiresAt, this.expired = false});
+
+  final List<PollOption> options;
+  final int totalVotes;
+  final DateTime? expiresAt;
+  final bool expired;
+
+  /// Share of the vote for one option, 0..1.
+  double shareOf(PollOption option) =>
+      totalVotes == 0 ? 0 : option.votes / totalVotes;
+
+  Map<String, dynamic> toJson() => {
+        'options': [for (final o in options) o.toJson()],
+        'totalVotes': totalVotes,
+        'expiresAt': expiresAt?.toIso8601String(),
+        'expired': expired,
+      };
+
+  factory Poll.fromJson(Map<String, dynamic> json) => Poll(
+        options: [
+          for (final o in (json['options'] as List? ?? const []))
+            PollOption.fromJson((o as Map).cast<String, dynamic>()),
+        ],
+        totalVotes: json['totalVotes'] as int? ?? 0,
+        expiresAt: DateTime.tryParse(json['expiresAt'] as String? ?? ''),
+        expired: json['expired'] as bool? ?? false,
       );
 }
 
@@ -44,6 +167,11 @@ class FeedItem {
     this.nativeId,
     this.contentWarning,
     this.sensitive = false,
+    this.quoted,
+    this.linkCard,
+    this.poll,
+    this.flair,
+    this.emojis = const {},
   });
 
   /// Globally unique: `sourceId:nativeId`.
@@ -66,8 +194,10 @@ class FeedItem {
 
   final List<MediaItem> media;
 
-  /// Just the URLs, for the many places that only need those.
-  List<String> get imageUrls => [for (final m in media) m.url];
+  /// What the timeline can show as a still: a video's poster frame stands in
+  /// for the video itself.
+  List<String> get imageUrls => [for (final m in media) m.previewUrl];
+
 
   /// Who boosted/reposted this into the timeline, if anyone.
   final String? repostedBy;
@@ -98,6 +228,25 @@ class FeedItem {
 
   bool get needsReveal => (contentWarning?.isNotEmpty ?? false) || sensitive;
 
+  /// A post this one quotes. Showing only the commentary without what it
+  /// quotes can invert the meaning entirely, so this is carried one level
+  /// deep (a quote of a quote shows the outer one only).
+  final FeedItem? quoted;
+
+  /// Preview for a link the post points at.
+  final LinkCard? linkCard;
+
+  final Poll? poll;
+
+  /// Reddit's post flair, which is how many subreddits organise themselves.
+  final String? flair;
+
+  /// Custom emoji available to this post, as `shortcode` to image URL.
+  ///
+  /// Mastodon instances define their own, and a post written with them
+  /// reads as `:blobcat:` nonsense without the pictures.
+  final Map<String, String> emojis;
+
   final DateTime createdAt;
 
   /// What the detail view should render as the post body.
@@ -125,6 +274,11 @@ class FeedItem {
         'nativeId': nativeId,
         'contentWarning': contentWarning,
         'sensitive': sensitive,
+        'quoted': quoted?.toJson(),
+        'linkCard': linkCard?.toJson(),
+        'poll': poll?.toJson(),
+        'flair': flair,
+        if (emojis.isNotEmpty) 'emojis': emojis,
         'createdAt': createdAt.toIso8601String(),
       };
 
@@ -154,6 +308,19 @@ class FeedItem {
         nativeId: json['nativeId'] as String?,
         contentWarning: json['contentWarning'] as String?,
         sensitive: json['sensitive'] as bool? ?? false,
+        quoted: json['quoted'] == null
+            ? null
+            : FeedItem.fromJson((json['quoted'] as Map).cast<String, dynamic>()),
+        linkCard: json['linkCard'] == null
+            ? null
+            : LinkCard.fromJson(
+                (json['linkCard'] as Map).cast<String, dynamic>()),
+        poll: json['poll'] == null
+            ? null
+            : Poll.fromJson((json['poll'] as Map).cast<String, dynamic>()),
+        flair: json['flair'] as String?,
+        emojis: ((json['emojis'] as Map?) ?? const {})
+            .map((k, v) => MapEntry(k as String, v as String)),
         createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '')
                 ?.toUtc() ??
             DateTime.now().toUtc(),
@@ -163,16 +330,52 @@ class FeedItem {
 /// One post in a reply thread, flattened with its nesting level so the UI
 /// can indent without recursing through a tree.
 class ThreadEntry {
-  const ThreadEntry({required this.item, this.depth = 0});
+  const ThreadEntry({required this.item, this.depth = 0, this.more});
 
   final FeedItem item;
   final int depth;
+
+  /// Replies to this comment that the network didn't send, if any.
+  final MoreReplies? more;
+
+  ThreadEntry withMore(MoreReplies? more) =>
+      ThreadEntry(item: item, depth: depth, more: more);
+}
+
+/// A pointer to replies a network held back.
+///
+/// Reddit truncates long and deep comment trees and hands back a token
+/// instead. Dropping it silently is how a 400-comment thread quietly becomes
+/// a 40-comment one, so it's carried and offered as "load more".
+class MoreReplies {
+  const MoreReplies({
+    required this.count,
+    required this.ids,
+    this.depth = 0,
+  });
+
+  /// How many comments are hidden, as the network counts them.
+  final int count;
+
+  /// Opaque ids to hand back when asking for them.
+  final List<String> ids;
+
+  /// Indentation the loaded replies should appear at.
+  final int depth;
+
+  /// Reddit also emits "continue this thread" stubs with nothing to request.
+  /// Those can't be loaded in place, so they aren't offered.
+  bool get isEmpty => ids.isEmpty;
 }
 
 /// The conversation around a post: what it was replying to, and what
 /// replied to it.
 class PostThread {
-  const PostThread({this.ancestors = const [], this.replies = const []});
+  const PostThread({
+    this.ancestors = const [],
+    this.replies = const [],
+    this.more,
+  });
 
   static const empty = PostThread();
 
@@ -181,6 +384,9 @@ class PostThread {
   final List<FeedItem> ancestors;
 
   final List<ThreadEntry> replies;
+
+  /// Top-level comments the network didn't send.
+  final MoreReplies? more;
 
   bool get isEmpty => ancestors.isEmpty && replies.isEmpty;
 }

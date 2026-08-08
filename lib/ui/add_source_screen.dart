@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_source.dart';
 import '../models/network.dart';
+import '../services/mastodon_client.dart';
 import '../services/mastodon_oauth.dart';
 import '../services/source_client.dart';
 import '../state/app_state.dart';
@@ -53,7 +54,7 @@ class _NetworkPicker extends StatelessWidget {
 
   static const _subtitles = {
     Network.mastodon: 'Sign in for your home timeline, or follow an instance',
-    Network.bluesky: 'Home timeline (app password) or a public author feed',
+    Network.bluesky: 'A custom feed, someone\'s posts, or your home timeline',
     Network.reddit: 'Any subreddit — no account needed',
     Network.twitter: 'Public tweets without an account, or the official API',
     Network.rss: 'A feed URL, or any website — Omni finds the feed',
@@ -112,6 +113,10 @@ class _SourceFormState extends State<_SourceForm> {
   /// Which Reddit listing to pull. Matches Reddit's own default.
   String _redditSort = 'hot';
 
+  /// The window "top" and "controversial" cover, which Reddit also defaults
+  /// to a day.
+  String _redditWindow = 'day';
+
   /// X sources either follow named accounts or your own home timeline.
   bool _twitterHome = false;
 
@@ -121,15 +126,38 @@ class _SourceFormState extends State<_SourceForm> {
   ({String instance, String clientId, String clientSecret})? _pendingOauth;
   String? _oauthAccount;
 
+  /// The signed-in account's lists, as id → title. Empty until sign-in.
+  Map<String, String> _lists = const {};
+  String? _selectedList;
+
+  /// 'bookmarks' or 'favourites', when following one of those instead of a
+  /// timeline. Only offered once signed in, because they're private.
+  String? _mastodonCollection;
+
+  Future<Map<String, String>> _fetchLists(String instance, String token) =>
+      MastodonClient(
+        FeedSource(
+          id: 'probe',
+          network: Network.mastodon,
+          displayName: instance,
+          params: {'instance': instance, 'accessToken': token},
+        ),
+        _oauth.httpClient,
+      ).fetchLists();
+
   List<_FieldSpec> get _fields => switch (widget.network) {
         Network.mastodon => const [
             _FieldSpec('instance', 'Instance',
                 hint: 'mastodon.social', required: true),
+            _FieldSpec('hashtag', 'Hashtag (optional)',
+                hint: 'photography — no account needed'),
             _FieldSpec('accessToken', 'Access token (optional)',
                 hint: 'Filled automatically when you sign in below',
                 obscure: true),
           ],
         Network.bluesky => const [
+            _FieldSpec('feed', 'Custom feed or list (paste a link)',
+                hint: 'bsky.app/profile/…/feed/whats-hot'),
             _FieldSpec('handle', 'Handle (public feed)',
                 hint: 'someone.bsky.social'),
             _FieldSpec('identifier', 'Your handle or email (home timeline)',
@@ -228,6 +256,9 @@ class _SourceFormState extends State<_SourceForm> {
       _oauthAccount =
           await _oauth.verifyCredentials(pending.instance, token);
       _pendingOauth = null;
+      // Lists are only readable once signed in, so this is the first moment
+      // we can offer them by name instead of by numeric id.
+      _lists = await _fetchLists(pending.instance, token);
       if (mounted) setState(() => _error = null);
     } on MastodonOAuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -237,22 +268,42 @@ class _SourceFormState extends State<_SourceForm> {
   }
 
   String _defaultName(Map<String, String> params) => switch (widget.network) {
-        Network.mastodon => params['accessToken']?.isNotEmpty == true
-            ? (_oauthAccount != null
+        Network.mastodon => switch (params) {
+            {'hashtag': final String tag} =>
+              '#${tag.replaceFirst(RegExp(r'^#'), '')}',
+            {'collection': 'bookmarks'} => 'My bookmarks',
+            {'collection': 'favourites'} => 'My favourites',
+            {'list': final String id} => _lists[id] ?? 'Mastodon list',
+            {'accessToken': final String _} => _oauthAccount != null
                 ? '@$_oauthAccount'
-                : 'Home · ${params['instance']}')
-            : 'Public · ${params['instance']}',
-        Network.bluesky => params['identifier']?.isNotEmpty == true
-            ? 'Bluesky home'
-            : '@${params['handle']}',
-        Network.reddit => params['sort'] == null || params['sort'] == 'hot'
-            ? 'r/${params['subreddit']}'
-            : 'r/${params['subreddit']} · ${params['sort']}',
+                : 'Home · ${params['instance']}',
+            _ => 'Public · ${params['instance']}',
+          },
+        Network.bluesky => switch (params) {
+            {'feed': final String feed} => _blueskyFeedName(feed),
+            {'identifier': final String _} => 'Bluesky home',
+            _ => '@${params['handle']}',
+          },
+        Network.reddit => switch (params) {
+            {'sort': final String s, 't': final String t} =>
+              'r/${params['subreddit']} · $s/$t',
+            {'sort': final String s} when s != 'hot' =>
+              'r/${params['subreddit']} · $s',
+            _ => 'r/${params['subreddit']}',
+          },
         Network.twitter => _twitterHome
             ? 'X · home timeline'
             : 'X · ${params['usernames']}',
         Network.rss => Uri.tryParse(params['url'] ?? '')?.host ?? 'RSS feed',
       };
+
+  /// Feed links end in the record key, which is usually the feed's name in
+  /// kebab-case — "whats-hot" is a better default label than the whole URL.
+  static String _blueskyFeedName(String ref) {
+    final rkey = ref.trim().split('/').where((s) => s.isNotEmpty).lastOrNull;
+    if (rkey == null || rkey.isEmpty) return 'Bluesky feed';
+    return rkey.replaceAll('-', ' ');
+  }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -264,6 +315,10 @@ class _SourceFormState extends State<_SourceForm> {
     };
     if (widget.network == Network.mastodon) {
       params['instance'] = MastodonOAuth.normalizeInstance(params['instance']!);
+      if (_selectedList != null) params['list'] = _selectedList!;
+      if (_mastodonCollection != null) {
+        params['collection'] = _mastodonCollection!;
+      }
     }
     if (widget.network == Network.twitter) {
       params['mode'] = _twitterOfficial ? 'official' : 'guest';
@@ -271,13 +326,18 @@ class _SourceFormState extends State<_SourceForm> {
     }
     if (widget.network == Network.reddit) {
       params['sort'] = _redditSort;
+      if (_redditSort == 'top' || _redditSort == 'controversial') {
+        params['t'] = _redditWindow;
+      }
     }
 
     if (widget.network == Network.bluesky &&
+        params['feed'] == null &&
         params['handle'] == null &&
         (params['identifier'] == null || params['appPassword'] == null)) {
       setState(() => _error =
-          'Enter a handle for a public feed, or both sign-in fields for your home timeline.');
+          'Paste a feed link, enter a handle for a public feed, or fill both '
+          'sign-in fields for your home timeline.');
       return;
     }
 
@@ -353,14 +413,44 @@ class _SourceFormState extends State<_SourceForm> {
             Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 16),
               child: Text(
-                'Sign in for your personal home timeline, or leave the token '
-                'empty to follow the instance\'s public timeline.',
+                'Sign in for your personal home timeline or one of your '
+                'lists, or leave the token empty for the instance\'s public '
+                'timeline. A hashtag works either way.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.outline),
               ),
             ),
+            if (_oauthAccount != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: DropdownButtonFormField<String>(
+                  value: _selectedList ?? _mastodonCollection,
+                  decoration: const InputDecoration(
+                    labelText: 'Follow',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                        value: null, child: Text('Home timeline')),
+                    const DropdownMenuItem(
+                        value: 'bookmarks', child: Text('My bookmarks')),
+                    const DropdownMenuItem(
+                        value: 'favourites', child: Text('My favourites')),
+                    for (final entry in _lists.entries)
+                      DropdownMenuItem(
+                          value: entry.key, child: Text('List · ${entry.value}')),
+                  ],
+                  onChanged: (v) => setState(() {
+                    // One control, because these are alternatives — picking
+                    // a list and "my bookmarks" at once means nothing.
+                    final isCollection = v == 'bookmarks' || v == 'favourites';
+                    _mastodonCollection = isCollection ? v : null;
+                    _selectedList = isCollection ? null : v;
+                  }),
+                ),
+              ),
           ],
-          if (widget.network == Network.reddit)
+          if (widget.network == Network.reddit) ...[
             Padding(
               padding: const EdgeInsets.only(bottom: 20),
               child: DropdownButtonFormField<String>(
@@ -373,12 +463,36 @@ class _SourceFormState extends State<_SourceForm> {
                   DropdownMenuItem(value: 'hot', child: Text('Hot')),
                   DropdownMenuItem(value: 'new', child: Text('New')),
                   DropdownMenuItem(value: 'top', child: Text('Top')),
+                  DropdownMenuItem(
+                      value: 'controversial', child: Text('Controversial')),
                   DropdownMenuItem(value: 'rising', child: Text('Rising')),
                 ],
-                onChanged: (v) =>
-                    setState(() => _redditSort = v ?? 'hot'),
+                onChanged: (v) => setState(() => _redditSort = v ?? 'hot'),
               ),
             ),
+            // Only top and controversial are scoped to a window; for the
+            // others Reddit ignores it, so offering it would be a lie.
+            if (_redditSort == 'top' || _redditSort == 'controversial')
+              Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: DropdownButtonFormField<String>(
+                  value: _redditWindow,
+                  decoration: const InputDecoration(
+                    labelText: 'From',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'hour', child: Text('Past hour')),
+                    DropdownMenuItem(value: 'day', child: Text('Past 24 hours')),
+                    DropdownMenuItem(value: 'week', child: Text('Past week')),
+                    DropdownMenuItem(value: 'month', child: Text('Past month')),
+                    DropdownMenuItem(value: 'year', child: Text('Past year')),
+                    DropdownMenuItem(value: 'all', child: Text('All time')),
+                  ],
+                  onChanged: (v) => setState(() => _redditWindow = v ?? 'day'),
+                ),
+              ),
+          ],
           if (widget.network == Network.twitter && !_twitterOfficial) ...[
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

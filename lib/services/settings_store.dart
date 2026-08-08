@@ -14,6 +14,7 @@ class SettingsStore {
   static const _dynamicColourKey = 'omni_dynamic_colour';
   static const _readKey = 'omni_read_ids';
   static const _hideReadKey = 'omni_hide_read';
+  static const _markReadOnScrollKey = 'omni_mark_read_on_scroll';
   static const _collectionsKey = 'omni_collections_v1';
 
   Future<List<Collection>> loadCollections() async {
@@ -59,6 +60,18 @@ class SettingsStore {
   Future<void> saveHideRead(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_hideReadKey, value);
+  }
+
+  /// Off by default: silently marking things read is the kind of behaviour
+  /// that should be asked for rather than assumed.
+  Future<bool> loadMarkReadOnScroll() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_markReadOnScrollKey) ?? false;
+  }
+
+  Future<void> saveMarkReadOnScroll(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_markReadOnScrollKey, value);
   }
 
   Future<bool> loadDynamicColour() async {

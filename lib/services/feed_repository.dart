@@ -2,7 +2,11 @@ import 'package:http/http.dart' as http;
 
 import '../models/feed_item.dart';
 import '../models/feed_source.dart';
+import 'bluesky_session.dart';
+import 'reddit_auth.dart';
+import 'resilient_client.dart';
 import 'source_client.dart';
+import 'source_health.dart';
 import 'twitter_guest_config.dart';
 import 'twitter_guest_session.dart';
 import 'twitter_session_store.dart';
@@ -12,6 +16,8 @@ class FeedResult {
     required this.items,
     required this.errors,
     this.cursors = const {},
+    this.staleSourceIds = const {},
+    this.offline = false,
   });
 
   final List<FeedItem> items;
@@ -23,20 +29,49 @@ class FeedResult {
   /// this map has nothing older to offer.
   final Map<String, String> cursors;
 
+  /// Sources whose posts in [items] came from the last successful fetch
+  /// rather than this one — they failed, but their content is still shown.
+  final Set<String> staleSourceIds;
+
+  /// Every source that was asked was unreachable, which says the connection
+  /// is down rather than that five services failed at once.
+  final bool offline;
+
   bool get hasMore => cursors.isNotEmpty;
 }
 
 /// Fans out to every enabled source in parallel and merges the results
 /// into one reverse-chronological timeline.
 class FeedRepository {
-  FeedRepository({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+  FeedRepository({http.Client? httpClient, RedditAuth? redditAuth})
+      : _http = httpClient ?? ResilientClient(),
+        _redditAuth = redditAuth;
 
   final http.Client _http;
+
+  /// Null means Reddit is read anonymously. Injected rather than created
+  /// here so tests never reach for platform storage.
+  final RedditAuth? _redditAuth;
+
+  /// The most recent successful page from each source. A source that starts
+  /// failing keeps showing these rather than disappearing from the
+  /// timeline, which is what used to happen on a single 403.
+  final _lastGood = <String, List<FeedItem>>{};
+
+  final _health = <String, SourceHealth>{};
+
+  SourceHealth healthOf(String sourceId) =>
+      _health[sourceId] ?? const SourceHealth();
+
+  Map<String, SourceHealth> get health => Map.unmodifiable(_health);
 
   /// Shared across refreshes so one anonymous X session serves every
   /// Twitter source instead of activating a token per account.
   final _twitterSession = TwitterGuestSession();
+
+  /// Likewise for Bluesky: one sign-in serves every Bluesky source and
+  /// survives between refreshes.
+  final _blueskySessions = BlueskySessions();
 
   /// Replies to [item], asked of whichever source produced it.
   Future<PostThread> fetchThread(
@@ -44,18 +79,88 @@ class FeedRepository {
     List<FeedSource> sources, {
     TwitterGuestConfig? twitterConfig,
     TwitterSession? twitterAccount,
+    String? sort,
   }) async {
-    final source = sources.where((s) => s.id == item.sourceId).firstOrNull;
-    if (source == null) return PostThread.empty;
-
-    return SourceClient.forSource(
-      source,
-      _http,
-      twitterConfig: twitterConfig,
-      twitterSession: _twitterSession,
-      twitterAccount: twitterAccount,
-    ).fetchThread(item);
+    final client = _clientFor(item, sources,
+        twitterConfig: twitterConfig, twitterAccount: twitterAccount);
+    if (client == null) return PostThread.empty;
+    return client.fetchThread(item, sort: sort);
   }
+
+  /// The replies a network held back — see [MoreReplies].
+  Future<List<ThreadEntry>> fetchMoreReplies(
+    FeedItem item,
+    MoreReplies more,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
+    String? sort,
+  }) async {
+    final client = _clientFor(item, sources,
+        twitterConfig: twitterConfig, twitterAccount: twitterAccount);
+    if (client == null) return const [];
+    return client.fetchMoreReplies(item, more, sort: sort);
+  }
+
+  /// The comment orderings [item]'s network offers.
+  Map<String, String> commentSorts(
+    FeedItem item,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+  }) =>
+      _clientFor(item, sources, twitterConfig: twitterConfig)?.commentSorts ??
+      const {};
+
+  /// Asks every source that can search for [query], in parallel.
+  ///
+  /// A source that fails is simply absent from the results: a search box is
+  /// the wrong place to explain that one of five networks is rate limited,
+  /// and the other four still have answers.
+  Future<List<FeedItem>> search(
+    String query,
+    List<FeedSource> sources, {
+    int limitPerSource = 25,
+    TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
+  }) async {
+    final searchable = sources.where((s) => s.enabled).toList();
+
+    final results = await Future.wait(searchable.map((source) async {
+      final client = SourceClient.forSource(
+        source,
+        _http,
+        twitterConfig: twitterConfig,
+        twitterSession: _twitterSession,
+        blueskySessions: _blueskySessions,
+        twitterAccount: twitterAccount,
+        redditAuth: _redditAuth,
+      );
+      if (!client.supportsSearch) return const <FeedItem>[];
+      try {
+        return await client.search(query, limit: limitPerSource);
+      } catch (_) {
+        return const <FeedItem>[];
+      }
+    }));
+
+    final seen = <String>{};
+    return <FeedItem>[
+      for (final list in results)
+        for (final item in list)
+          if (seen.add(item.id)) item,
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  /// Whether any configured source can be searched at all.
+  bool canSearch(List<FeedSource> sources, {TwitterGuestConfig? twitterConfig}) =>
+      sources.where((s) => s.enabled).any((source) => SourceClient.forSource(
+            source,
+            _http,
+            twitterConfig: twitterConfig,
+            twitterSession: _twitterSession,
+            blueskySessions: _blueskySessions,
+            redditAuth: _redditAuth,
+          ).supportsSearch);
 
   /// Recent posts by whoever wrote [item], asked of its own source.
   Future<List<FeedItem>> fetchAuthorPosts(
@@ -92,7 +197,9 @@ class FeedRepository {
       _http,
       twitterConfig: twitterConfig,
       twitterSession: _twitterSession,
+      blueskySessions: _blueskySessions,
       twitterAccount: twitterAccount,
+      redditAuth: _redditAuth,
     );
   }
 
@@ -106,6 +213,7 @@ class FeedRepository {
     TwitterGuestConfig? twitterConfig,
     TwitterSession? twitterAccount,
     Map<String, String>? cursors,
+    bool force = false,
   }) async {
     final loadingMore = cursors != null;
     final enabled = sources
@@ -114,25 +222,63 @@ class FeedRepository {
 
     final errors = <String>[];
     final nextCursors = <String, String>{};
+    final stale = <String>{};
+    final now = DateTime.now();
+    // Sources whose failure was the phone having no connection rather than
+    // the service saying no.
+    final unreachable = <String>{};
 
     final results = await Future.wait(enabled.map((source) async {
+      // A source that just refused isn't asked again straight away.
+      // Hammering a 403 is how a temporary block becomes a lasting one,
+      // and its last posts are shown either way.
+      if (!healthOf(source.id).shouldFetchAt(now, force: force)) {
+        final held = loadingMore ? null : _lastGood[source.id];
+        if (held != null && held.isNotEmpty) {
+          stale.add(source.id);
+          return held;
+        }
+        return const <FeedItem>[];
+      }
+
       try {
         final page = await SourceClient.forSource(
           source,
           _http,
           twitterConfig: twitterConfig,
           twitterSession: _twitterSession,
+          blueskySessions: _blueskySessions,
           twitterAccount: twitterAccount,
+          redditAuth: _redditAuth,
         ).fetchPage(limit: limitPerSource, cursor: cursors?[source.id]);
 
         if (page.nextCursor != null && page.items.isNotEmpty) {
           nextCursors[source.id] = page.nextCursor!;
         }
+        _health[source.id] = healthOf(source.id).succeeded(now);
+        if (!loadingMore) _lastGood[source.id] = page.items;
         return page.items;
-      } on SourceFetchException catch (e) {
-        errors.add(e.toString());
       } catch (e) {
-        errors.add('${source.displayName}: ${e.toString()}');
+        // Being offline isn't the source's fault, and counting it as one
+        // would push every source into a long backoff over a tunnel.
+        if (isConnectivityFailure(e)) {
+          unreachable.add(source.id);
+        } else if (e is SourceFetchException) {
+          errors.add(e.toString());
+          _health[source.id] = healthOf(source.id).failed(e.message, now);
+        } else {
+          errors.add('${source.displayName}: ${e.toString()}');
+          _health[source.id] = healthOf(source.id).failed(e.toString(), now);
+        }
+      }
+
+      // Show what this source last gave us rather than dropping it out of
+      // the timeline entirely. Paging is exempt: repeating the previous
+      // page as "older posts" would just duplicate them.
+      final previous = loadingMore ? null : _lastGood[source.id];
+      if (previous != null && previous.isNotEmpty) {
+        stale.add(source.id);
+        return previous;
       }
       return const <FeedItem>[];
     }));
@@ -144,7 +290,18 @@ class FeedRepository {
           if (seen.add(item.id)) item,
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    return FeedResult(items: merged, errors: errors, cursors: nextCursors);
+    return FeedResult(
+      items: merged,
+      errors: errors,
+      cursors: nextCursors,
+      staleSourceIds: stale,
+      // Every source that was actually asked came back unreachable, which
+      // means the connection, not five simultaneous outages.
+      offline: unreachable.isNotEmpty && errors.isEmpty && nextCursors.isEmpty
+          ? unreachable.length ==
+              enabled.where((s) => healthOf(s.id).shouldFetchAt(now, force: force)).length
+          : false,
+    );
   }
 
   void dispose() => _http.close();

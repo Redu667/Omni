@@ -8,6 +8,21 @@ Status key: **✗** missing · **◐** partial · **✓** done
 
 ---
 
+## Resilience
+
+How Omni behaves when a service says no, which on Reddit and X is often.
+
+| Behaviour | Status | Notes |
+|---|---|---|
+| **Retry with backoff** | ✓ | Transient failures (429, 5xx, timeouts, dropped connections) retry with jittered exponential backoff. 403 and 404 are terminal — retrying a block just delays the fallback. |
+| **`Retry-After`** | ✓ | Honoured when short; a server asking for ten minutes is told no and the refresh returns instead of blocking. |
+| **Graceful degradation** | ✓ | A source that starts failing keeps its last posts in the timeline, marked stale, instead of vanishing. |
+| **Per-source health** | ✓ | Consecutive failures and last success tracked, so a blip reads differently from a week-long outage. |
+| **Reddit authentication** | ✓ | An optional app ID makes requests authenticated, which is the actual fix for its 403s rather than the Atom fallback's damage limitation. |
+| **Conditional requests** | ◐ | RSS sends `If-None-Match`/`If-Modified-Since` and reuses parsed items on a 304. Not yet applied to the JSON APIs. |
+| **Per-source retry scheduling** | ✓ | A source that keeps refusing is left alone for a while — two minutes, then five, fifteen, thirty — rather than being asked on every refresh. Hammering a 403 is how a temporary block becomes a lasting one. The first two failures cost nothing, the delay is capped so a source is never abandoned, and pull-to-refresh or Retry overrides it. |
+| **Offline detection** | ✓ | A dropped connection is told apart from a service refusing, by the failure itself rather than by asking the platform — a phone on wifi with no route out is still offline. It doesn't count against any source's retry backoff, and shows as one "no connection" line instead of the same error once per source. |
+
 ## Cross-cutting — affects every source
 
 These matter more than any single network's features, because they shape
@@ -17,16 +32,16 @@ whether Omni is usable as a daily reader at all.
 |---|---|---|
 | **Pagination / infinite scroll** | ✓ | Each network is paged with its own cursor (Mastodon `max_id`, Reddit `after`, Bluesky/X tokens); sources drop out as they run out. RSS is the exception — feeds publish a fixed window with no way to ask for older entries. |
 | **Offline cache** | ✓ | The timeline is kept on disk and shown instantly at launch, with a banner while it's stale. A refresh that fails everywhere keeps the cache rather than blanking the feed. |
-| **Read / unread state** | ◐ | Opening a post marks it read; read posts dim, or hide entirely by choice, and there's mark-all-read. Not yet: marking read by scrolling past. |
+| **Read / unread state** | ✓ | Opening a post marks it read; scrolling one off the top of the screen does too, behind a setting. Read posts dim, or hide entirely by choice, and there's mark-all-read. Posts marked by scrolling stay in place until the next refresh, so the list never shifts under a moving thumb. |
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
-| **Search** | ✗ | Neither within the loaded feed nor against each network's search API. |
-| **Image viewer** | ◐ | The detail view shows every image; the timeline shows the first with a count badge. Still no tap-to-zoom, pan, or saving. |
-| **Video** | ✗ | No playback anywhere. Reddit `v.redd.it`, Mastodon and Bluesky video, and X video are all silently dropped. |
-| **Alt text** | ✓ | Carried from Mastodon, Bluesky and X, shown under each image in the detail view, exposed to screen readers, and flagged with an ALT badge in the timeline. |
-| **Link preview cards** | ✗ | Link posts show a bare URL rather than title/description/thumbnail. |
-| **Share sheet** | ✗ | Can copy a link from the detail menu; can't share to another app. |
-| **Content warnings** | ✓ | Mastodon spoilers and Reddit `over_18` hide the body behind a reveal. |
+| **Search** | ✓ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip; press enter to ask Mastodon, Bluesky and Reddit for posts you haven't loaded. RSS has no search API and X's would be another rotating query ID, so neither is offered. |
+| **Image viewer** | ◐ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture. Not yet: saving to the device. |
+| **Video** | ✓ | Plays in-app on all four networks that have it — Mastodon video and `gifv`, Bluesky's HLS embeds, Reddit `v.redd.it`, and X video and animated GIFs. Timeline shows the poster frame with a play badge and the running time; GIFs loop silently, everything else plays once with sound. |
+| **Alt text** | ✓ | Carried from Mastodon, Bluesky and X for images and video alike, shown under each image in the detail view and under a playing video, exposed to screen readers, and flagged with an ALT badge in the timeline. |
+| **Link preview cards** | ✓ | Mastodon cards, Bluesky external embeds and Reddit outbound links render as tappable cards. |
+| **Share sheet** | ✓ | Long-press a post to hand its link to Android's share sheet, or copy it. |
+| **Content warnings** | ✓ | Mastodon spoilers, Bluesky's adult and graphic-media labels, Reddit `over_18`, and the reader's own instance filters all hide the body behind a reveal — or drop the post outright, where the filter says hide. |
 | **Mute filters** | ◐ | Words and accounts work. No regex, no per-source scoping, no time-limited mutes, no muting by hashtag or domain. |
 | **Display settings** | ◐ | Material You wallpaper colours plus a light/dark/system override. No text size, density, or compact layout. |
 | **Per-source refresh interval** | ✗ | Everything refreshes together, on demand only. |
@@ -46,15 +61,16 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | Public / local timeline | ✓ | No account needed. |
 | Content warnings | ✓ | |
 | **Thread parent context** | ✓ | Ancestors are shown above the post, tappable to walk up the conversation. |
-| **Polls** | ✗ | Poll posts render as empty text. |
-| **Custom emoji** | ✗ | `:shortcodes:` show as literal text instead of the instance's emoji. |
+| **Polls** | ✓ | Options and vote shares shown. Read-only — Omni doesn't vote. |
+| **Custom emoji** | ✓ | Instance emoji render inline in post bodies, titles, display names and replies, sized to the line. Only shortcodes the post declares are substituted, so `10:30` stays a time. An emoji that won't load falls back to the code it stands for. |
 | **Interactions** | ✗ | No favourite, boost, reply, or follow. Omni is read-only by design, but favouriting is the one most readers expect. |
+| **Search** | ✓ | Status search when signed in, and a `#tag` query uses the public tag timeline instead — status search is authenticated on nearly every instance. |
 | **Notifications timeline** | ✗ | No mentions, follows, or replies view. |
-| **Lists & hashtag timelines** | ✗ | Only home and public. Mastodon lists are a major curation tool. |
+| **Lists & hashtag timelines** | ✓ | Hashtag timelines need no account and can be scoped to one instance; lists are offered by name after signing in, rather than by numeric id. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
-| **Bookmarks & favourites** | ✗ | Can't read your own saved posts. |
+| **Bookmarks & favourites** | ✓ | Both readable as sources once signed in. They page by their own ids from the `Link` header, not by status id — paging them as a timeline returns the same page forever. |
 | **Sensitive media blur** | ◐ | Whole post is hidden; no per-attachment blur-with-tap. |
-| **Filters (server-side)** | ✗ | Mastodon's own keyword filters are ignored; Omni's local ones are separate. |
+| **Filters (server-side)** | ✓ | The instance's own filters are respected: `hide` drops the post, `warn` hides the body behind a reveal naming the filter. Mastodon evaluates them server-side and reports the verdict per status, so keyword rules, whole-word matching and expiry come from the instance rather than being reimplemented. |
 
 ---
 
@@ -67,16 +83,17 @@ Closest comparison: the official app, Graysky, deck.blue.
 | Home timeline | ✓ | Via app password. |
 | Public author feed | ✓ | No auth needed. |
 | Thread replies | ✓ | |
-| **Custom feeds** | ✗ | Bluesky's headline feature — "Discover", "What's Hot", and thousands of community algorithms — is entirely absent. Arguably the biggest single omission for Bluesky users. |
-| **Lists** | ✗ | No list timelines or moderation lists. |
-| **Quote posts** | ✗ | The quoted post isn't rendered; only the commentary shows, which can invert the meaning. |
-| **External embed cards** | ✗ | Link embeds are dropped rather than shown as cards. |
+| **Custom feeds** | ✓ | Paste a feed's bsky.app link (or an `at://` URI) and it becomes a source. The handle in the link is resolved to a DID, and signing in routes the request through the authenticated host so generators that refuse anonymous readers still work. |
+| **Lists** | ◐ | List feeds work the same way, from a `/lists/` link. Moderation lists aren't applied. |
+| **Quote posts** | ✓ | The quoted post renders inline; deleted and blocked quotes are omitted rather than shown blank. |
+| **External embed cards** | ✓ | |
 | **Labels & moderation** | ◐ | Adult and graphic-media labels hide the post behind a reveal. Custom labeler subscriptions and per-label preferences aren't supported. |
 | **Thread parent context** | ✓ | The parent chain is walked and shown oldest-first. |
 | **Interactions** | ✗ | No like, repost, reply, or follow. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
-| **Video** | ✗ | |
-| **Session reuse** | ✗ | Signs in fresh on every refresh instead of caching the JWT — slower, and needlessly hard on their servers. |
+| **Video** | ✓ | HLS embeds play, including when nested under `recordWithMedia`. |
+| **Search** | ✓ | `searchPosts` on the public AppView, so it works on a source with no credentials. |
+| **Session reuse** | ✓ | One sign-in serves every Bluesky source and survives between refreshes; the token is renewed with the refresh token rather than the password, and a rejected token triggers one fresh sign-in and a retry instead of a visible failure. |
 
 ---
 
@@ -89,18 +106,19 @@ Closest comparison: Infinity, RedReader, Boost.
 | Subreddit listings | ✓ | Multireddits (`a+b+c`) work. |
 | Sort (hot/new/top/rising) | ✓ | Selectable when adding, changeable afterwards. |
 | Comments with nesting | ✓ | |
-| **Time filter for `top`** | ✗ | `top` always means all-time; no hour/day/week/month/year. |
-| **Comment sort** | ✗ | Hardcoded to `top`; no best/new/controversial/old. |
-| **Collapse comment threads** | ✗ | Long chains can't be folded, which makes big threads unreadable on a phone. |
-| **Load more comments** | ✗ | "more" stubs are skipped, so deep threads are silently truncated. |
-| **Galleries** | ✗ | Multi-image posts show one image. |
-| **Video** | ✗ | `v.redd.it` unsupported. |
+| **Time filter for `top`** | ✓ | Hour through all-time, offered only for `top` and `controversial` — Reddit ignores it elsewhere. |
+| **Comment sort** | ✓ | Best, top, new, old, controversial and Q&A, chosen from the thread itself. |
+| **Search** | ✓ | Scoped to the subreddit the source follows, since site-wide results would drown out what the reader actually added. |
+| **Collapse comment threads** | ✓ | Tap a comment's header to fold it and everything under it, with a count of what's hidden. The body isn't the handle — selecting text there would fold the comment out from under you. |
+| **Load more comments** | ✓ | "N more replies" loads in place, at the right indentation, both at the top level and under a specific comment. Reddit's 100-per-request cap is handled by leaving the remainder behind the next button. "Continue this thread" stubs, which carry nothing to request, aren't offered. |
+| **Galleries** | ✓ | Every image of a gallery is carried, with captions as alt text. |
+| **Video** | ✓ | `v.redd.it` plays via its HLS stream. The `fallback_url` is video-only, so it's the last resort — a silent clip is worse than an obvious failure — except for converted GIFs, which have no audio to lose. |
 | **Polls** | ✗ | |
-| **Flair** | ✗ | Neither shown nor filterable, though flair is how many subreddits organise themselves. |
+| **Flair** | ◐ | Shown as a chip on posts. Not yet filterable. |
 | **User profile feeds** | ◐ | Tapping an author shows their submitted posts; can't add `u/someone` as a standing source. |
-| **Logged-in Reddit** | ✗ | No account, so no home feed, saved posts, subscriptions, or voting. Would also sidestep the blocking below. |
-| **Crossposts** | ✗ | Render as empty posts. |
-| **Atom fallback is lossy** | ◐ | When Reddit blocks the JSON API (common, even for public subreddits) Omni falls back to Atom, which carries no score, comment count, or self-text. |
+| **Logged-in Reddit** | ◐ | An app ID authenticates requests and sidesteps the blocking. A full user login (home feed, saved posts, subscriptions) is still missing. |
+| **Crossposts** | ✓ | Content is taken from the original, with the source subreddit attributed. |
+| **Atom fallback is lossy** | ◐ | Still the last resort when unauthenticated and blocked — no score, comment count or self-text. Configuring an app ID avoids needing it. |
 
 ---
 
@@ -113,15 +131,15 @@ Closest comparison: Squawker; historically Tweetbot and Talon.
 | User timelines | ✓ | Via signed-in session. |
 | Stale-data detection | ✓ | Refuses to present a stale timeline as current. |
 | **Home timeline** | ✓ | A Twitter source can follow your own timeline instead of named accounts, when signed in. |
-| **Quote tweets** | ✗ | Quoted post not rendered. |
-| **Conversation threads** | ✗ | `fetchThread` isn't implemented for X at all; replies are unavailable. |
-| **Search** | ✗ | |
+| **Quote tweets** | ✓ | Rendered inline, as on Bluesky. |
+| **Conversation threads** | ✓ | Replies load via TweetDetail, with the tweets above the one being read shown as its ancestors and reply chains indented. A stale query ID leaves the post readable and simply shows no conversation. |
+| **Search** | ✗ | SearchTimeline would need another rotating query ID, and every one of those is another thing to break. Local search covers X posts already fetched. |
 | **Lists** | ✗ | |
 | **Bookmarks** | ✗ | |
 | **Polls** | ✗ | |
-| **Video** | ✗ | |
+| **Video** | ✓ | The highest-bitrate MP4 variant, since the HLS one carries no bitrate to compare and is often account-gated. |
 | **Interactions** | ✗ | No like, repost, or reply. |
-| **Fragility** | ◐ | Query IDs are user-editable, which softens breakage but doesn't prevent it. No automatic detection or self-updating. |
+| **Fragility** | ◐ | Every query ID is user-editable — including the home timeline and TweetDetail ones, which were previously reset to defaults whenever the screen was saved. Still no automatic detection or self-updating. |
 
 ---
 
@@ -138,10 +156,10 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 | **Full-text extraction** | ✗ | Truncated feeds stay truncated. A readability pass would fix the many feeds that publish only a teaser. |
 | **Folders / categories** | ◐ | Collections group feeds (and everything else) across networks. OPML folder structure is still discarded on import. |
 | **Unread counts per feed** | ✗ | |
-| **Podcast enclosures** | ✗ | Audio enclosures are ignored — no playback, no queue. |
-| **Per-feed favicon** | ✗ | All feeds share one generic icon, making a mixed timeline harder to scan. |
-| **Conditional requests** | ✗ | No `ETag`/`If-Modified-Since`, so every refresh refetches everything in full. Wasteful for both you and the publisher. |
-| **JSON Feed** | ✗ | |
+| **Podcast enclosures** | ◐ | Audio enclosures play, with the episode's own art or the show's standing in for a picture, and `itunes:duration` read in either `HH:MM:SS` or plain seconds. No queue, no playback position, no background audio. |
+| **Per-feed favicon** | ✓ | The image a feed declares (`channel/image`, `itunes:image`, Atom `icon`/`logo`, JSON Feed `icon`), falling back to the site's favicon. Relative paths are ignored in favour of the favicon rather than resolved against the wrong base. |
+| **Conditional requests** | ✓ | `ETag`/`If-Modified-Since` sent, with a 304 reusing already-parsed items. |
+| **JSON Feed** | ✓ | Detected by the body rather than the content type, since publishers serve it under several. Attachments become media by MIME type; anything Omni can't present, like a PDF, is skipped rather than shown as a broken image. |
 
 ---
 
@@ -149,13 +167,8 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Full-screen image viewer** — tap to zoom, swipe a gallery, save. The most visible day-to-day rough edge now.
-2. **Search** — across the loaded feed first, which needs no new API work at all.
-3. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
-4. **Reddit "load more" comments** — deep threads are quietly cut off today.
-5. **Mark read by scrolling past** — the half of read-state that's still missing.
-6. **Quote posts** (Bluesky + X) — a quote with the quoted post missing can invert its meaning.
-7. **Link preview cards** — link posts currently show a bare URL.
-8. **Background refresh & notifications** — the last thing keeping Omni a foreground-only app.
-9. **Video playback** — big lift, touches every network.
-10. **Polls** — Mastodon, Reddit and X all have them; all render as empty posts.
+1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
+2. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Needs a decision about which copy to keep: the subreddit has the discussion, the feed has the full text.
+3. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
+4. **Saving an image to the device** — the image viewer can show one but not keep it.
+5. **Per-source refresh interval** — everything refreshes together, on demand only.

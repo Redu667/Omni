@@ -20,6 +20,7 @@ class TwitterGuestConfig {
     required this.userTweetsQueryId,
     required this.featuresJson,
     this.homeTimelineQueryId = defaultHomeTimelineQueryId,
+    this.tweetDetailQueryId = defaultTweetDetailQueryId,
   });
 
   /// The public bearer token X's own logged-out web client ships. It is the
@@ -33,6 +34,7 @@ class TwitterGuestConfig {
   static const defaultUserByScreenNameQueryId = 'G3KGOASz96M-Qu0nwmGXNg';
   static const defaultUserTweetsQueryId = 'V7H0Ap3_Hh2FyS75OCDO3Q';
   static const defaultHomeTimelineQueryId = 'HJFjzBgCs16TqxewQOeLNg';
+  static const defaultTweetDetailQueryId = 'xd_EMdYvB9hfZsZ6Idri0w';
 
   /// Feature flags the endpoints require. X rejects a request that omits a
   /// flag it expects, but tolerates extras, so this is a superset.
@@ -75,6 +77,7 @@ class TwitterGuestConfig {
     userByScreenNameQueryId: defaultUserByScreenNameQueryId,
     userTweetsQueryId: defaultUserTweetsQueryId,
     homeTimelineQueryId: defaultHomeTimelineQueryId,
+    tweetDetailQueryId: defaultTweetDetailQueryId,
     featuresJson: defaultFeaturesJson,
   );
 
@@ -84,6 +87,9 @@ class TwitterGuestConfig {
 
   /// Only used by signed-in sources set to follow your home timeline.
   final String homeTimelineQueryId;
+
+  /// Used when opening a tweet to read its replies.
+  final String tweetDetailQueryId;
 
   final String featuresJson;
 
@@ -110,6 +116,7 @@ class TwitterGuestConfig {
     String? userByScreenNameQueryId,
     String? userTweetsQueryId,
     String? homeTimelineQueryId,
+    String? tweetDetailQueryId,
     String? featuresJson,
   }) =>
       TwitterGuestConfig(
@@ -118,6 +125,7 @@ class TwitterGuestConfig {
             userByScreenNameQueryId ?? this.userByScreenNameQueryId,
         userTweetsQueryId: userTweetsQueryId ?? this.userTweetsQueryId,
         homeTimelineQueryId: homeTimelineQueryId ?? this.homeTimelineQueryId,
+        tweetDetailQueryId: tweetDetailQueryId ?? this.tweetDetailQueryId,
         featuresJson: featuresJson ?? this.featuresJson,
       );
 
@@ -126,6 +134,7 @@ class TwitterGuestConfig {
         'userByScreenNameQueryId': userByScreenNameQueryId,
         'userTweetsQueryId': userTweetsQueryId,
         'homeTimelineQueryId': homeTimelineQueryId,
+        'tweetDetailQueryId': tweetDetailQueryId,
         'featuresJson': featuresJson,
       };
 
@@ -138,6 +147,8 @@ class TwitterGuestConfig {
             json['userTweetsQueryId'] as String? ?? defaultUserTweetsQueryId,
         homeTimelineQueryId: json['homeTimelineQueryId'] as String? ??
             defaultHomeTimelineQueryId,
+        tweetDetailQueryId: json['tweetDetailQueryId'] as String? ??
+            defaultTweetDetailQueryId,
         featuresJson: json['featuresJson'] as String? ?? defaultFeaturesJson,
       );
 }

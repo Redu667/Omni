@@ -12,6 +12,7 @@ import '../state/app_state.dart';
 import 'filters_screen.dart';
 import 'saved_screen.dart';
 import 'sources_screen.dart';
+import 'reddit_settings_screen.dart';
 import 'twitter_settings_screen.dart';
 
 /// Everything that isn't reading. Settings used to be scattered across the
@@ -19,7 +20,7 @@ import 'twitter_settings_screen.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const _version = '0.8.1';
+  static const _version = '0.9.0';
 
   Future<void> _importOpml(BuildContext context) async {
     final state = context.read<AppState>();
@@ -185,6 +186,16 @@ class SettingsScreen extends StatelessWidget {
             onChanged: state.setHideRead,
           ),
           SwitchListTile(
+            secondary: const Icon(Icons.swipe_up_outlined),
+            title: const Text('Mark read by scrolling past'),
+            subtitle: const Text(
+                'Posts that pass the top of the screen count as read. They '
+                'stay put until the next refresh, so nothing moves under '
+                'your thumb.'),
+            value: state.markReadOnScroll,
+            onChanged: state.setMarkReadOnScroll,
+          ),
+          SwitchListTile(
             secondary: const Icon(Icons.open_in_new),
             title: const Text('Open originals in Omni'),
             subtitle: const Text(
@@ -195,6 +206,17 @@ class SettingsScreen extends StatelessWidget {
           ),
 
           _SectionHeader('Accounts'),
+          ListTile(
+            leading: const Icon(Icons.reddit),
+            title: const Text('Reddit access'),
+            subtitle: const Text(
+                'Optional app ID that stops Reddit blocking anonymous '
+                'requests'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RedditSettingsScreen()),
+            ),
+          ),
           ListTile(
             leading: const Icon(Icons.tag),
             title: const Text('Twitter (X) access'),

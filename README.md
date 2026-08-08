@@ -21,16 +21,27 @@ Moshidon, but spanning multiple networks.
   them out again.
 - **Native post view** — tapping a post renders it with Flutter widgets in
   the same visual language as the timeline: full text, media, engagement
-  counts, and the reply thread underneath (Reddit comments, Mastodon context,
-  Bluesky threads). The original page is one tap away, in Omni's browser or
-  yours, but you never have to go there to read.
+  counts, quoted posts, polls, link cards, and the reply thread underneath
+  (Reddit comments, Mastodon context, Bluesky and X threads). The original
+  page is one tap away, in Omni's browser or yours, but you never have to go
+  there to read.
+- **Whole threads, folded** — Reddit's "N more replies" load in place at the
+  right indentation instead of being silently truncated, with best/top/new/
+  old/controversial/Q&A sorting; tap a comment's header to fold it and
+  everything under it.
+- **Photos, video and audio** — tap an image for full screen with pinch-zoom
+  and swipe-through galleries; video plays in-app on Mastodon, Bluesky,
+  Reddit and X, and podcast enclosures play with their cover art.
+- **Search** — over every post already loaded: instant, offline, and covering
+  titles, bodies, authors, flair, alt text, quoted posts and link cards.
 - **Open any account** — tap an author anywhere to see their recent posts,
   on Mastodon, Bluesky, Reddit or X.
 - **Save posts** — long-press to keep one. Saved posts are stored in full, so
   they stay readable after the source is removed or the original is deleted.
 - **Works offline** — the timeline is cached to disk and shown the moment you
   open the app; a failed refresh keeps what you had instead of blanking.
-- **Read state** — opening a post marks it read; read posts dim, or hide
+- **Read state** — opening a post marks it read, and so does scrolling one
+  off the top of the screen if you turn that on. Read posts dim, or hide
   entirely if you prefer, with mark-all-read a tap away.
 - **Alt text** — image descriptions are carried through from Mastodon,
   Bluesky and X, shown under the image and exposed to screen readers.
@@ -39,9 +50,10 @@ Moshidon, but spanning multiple networks.
   them as one timeline.
 - **Sidebar navigation** — collections and networks live in a drawer rather
   than a chip bar that would overflow once you have a few of each.
-- **Content warnings honoured** — Mastodon spoilers and Reddit's over-18 flag
-  hide a post's body and media behind a reveal rather than showing content the
-  author marked as hidden.
+- **Content warnings honoured** — Mastodon spoilers, Bluesky's moderation
+  labels and Reddit's over-18 flag hide a post's body and media behind a
+  reveal rather than showing content marked as hidden. The filters you set on
+  your own Mastodon instance are respected too: "hide" means hide.
 - **Mute filters** — hide posts by word, phrase or account across every
   source. Single words match on word boundaries (muting "art" won't hide
   "start"); accounts match however you type them, `@name`, `u/name` or bare.
@@ -49,8 +61,15 @@ Moshidon, but spanning multiple networks.
   silently.
 - **Multiple sources per network** — several subreddits, several feeds,
   several accounts; toggle each on/off or remove it.
-- **Graceful partial failure** — if one source is down you still get the rest,
-  with an inline warning.
+- **Graceful partial failure** — a source that fails keeps its last posts in
+  the timeline rather than vanishing, and says so. Transient failures retry
+  with backoff; rate limits are honoured rather than hammered; and a source
+  that keeps refusing is left alone for a few minutes rather than being asked
+  on every refresh, because hammering a 403 is how a temporary block becomes
+  a lasting one.
+- **Reddit without the 403s** — an optional app ID authenticates requests,
+  which Reddit doesn't block, restoring scores and comment counts that its
+  Atom fallback can't carry.
 - **Material 3 with Material You** — takes its palette from your wallpaper on
   Android 12+, with a light/dark/system override and a switch back to Omni's
   own colours.
@@ -61,11 +80,11 @@ Moshidon, but spanning multiple networks.
 
 | Network | What you can add | Auth |
 |---|---|---|
-| Mastodon | Home timeline, or any instance's public/local timeline | In-app OAuth sign-in (or none for public timelines) |
-| Bluesky | Your home timeline, or any user's public feed | Optional app password (Settings → App Passwords) |
-| Reddit | Any subreddit (`flutter` or `flutter+androiddev`) | None — falls back to Reddit's Atom feeds when the JSON API is blocked, which it often is |
-| Twitter/X | Public posts from chosen usernames | **Sign in** (recommended), anonymous, or the official API v2 with your own bearer token |
-| RSS / Atom | Any feed URL | None |
+| Mastodon | Home timeline, a list, your bookmarks or favourites, a hashtag, or any instance's public/local timeline | In-app OAuth sign-in (none needed for public timelines and hashtags) |
+| Bluesky | A custom feed or list (paste its bsky.app link), any user's public feed, or your home timeline | Optional app password (Settings → App Passwords) |
+| Reddit | Any subreddit (`flutter` or `flutter+androiddev`), sorted, with a time window for top | None — falls back to Reddit's Atom feeds when the JSON API is blocked, which it often is |
+| Twitter/X | Public posts from chosen usernames, or your own home timeline | **Sign in** (recommended), anonymous, or the official API v2 with your own bearer token |
+| RSS / Atom / JSON Feed | Any feed URL, or any website — Omni finds the feed | None |
 
 ### Twitter/X without an API plan
 
@@ -174,6 +193,11 @@ client class plus an enum entry.
 clients for each network offer against what Omni does today, per network plus
 the cross-cutting gaps, with a shortlist ordered by value per effort.
 
-The largest gaps as of 0.5.x: no pagination (only the newest ~40 posts per
-source are ever fetched), no offline cache or read state, no image viewer or
-video playback, and no thread parent context.
+The largest remaining gaps: no background refresh or notifications (Omni
+only fetches while open), no cross-post de-duplication (the same story from
+a feed and a subreddit appears twice), no full-text extraction for feeds that
+publish only a teaser, and no offline detection — with no signal, every
+source fails separately instead of the refresh being skipped.
+
+Writing — favouriting, boosting, replying — is a deliberate non-goal. Omni
+is a reader.

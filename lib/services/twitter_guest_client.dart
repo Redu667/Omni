@@ -210,6 +210,92 @@ class TwitterGuestClient extends SourceClient {
     }
   }
 
+  @override
+  Future<PostThread> fetchThread(FeedItem item,
+      {int limit = 100, String? sort}) async {
+    final tweetId = item.nativeId;
+    if (tweetId == null) return PostThread.empty;
+
+    final Map<String, dynamic> body;
+    try {
+      body = await _graphql(
+        queryId: config.tweetDetailQueryId,
+        operation: 'TweetDetail',
+        variables: {
+          'focalTweetId': tweetId,
+          'with_rux_injections': false,
+          'includePromotedContent': false,
+          'withCommunity': true,
+          'withQuickPromoteEligibilityTweetFields': false,
+          'withBirdwatchNotes': false,
+          'withVoice': true,
+          'withV2Timeline': true,
+        },
+      );
+    } on TwitterGuestException {
+      // Replies are a bonus, not the post. A rotated query ID shouldn't
+      // stop the post itself from being readable.
+      return PostThread.empty;
+    }
+
+    final instructions = (_dig(body, [
+              'data',
+              'threaded_conversation_with_injections_v2',
+              'instructions'
+            ]) as List?) ??
+        const [];
+
+    final ancestors = <FeedItem>[];
+    final replies = <ThreadEntry>[];
+    // Everything before the tweet being read is what it was replying to;
+    // everything after is a reply to it.
+    var seenFocal = false;
+
+    for (final instruction in instructions.cast<Map<String, dynamic>>()) {
+      if (instruction['type'] != 'TimelineAddEntries') continue;
+      for (final entry in (instruction['entries'] as List? ?? const [])
+          .cast<Map<String, dynamic>>()) {
+        final entryId = entry['entryId'] as String? ?? '';
+        if (entryId.startsWith('cursor-')) continue;
+
+        // A conversation module is one reply chain, deepening as it goes.
+        if (entryId.startsWith('conversationthread-')) {
+          var depth = 0;
+          for (final moduleItem in (entry['content']['items'] as List? ??
+                  const [])
+              .cast<Map<String, dynamic>>()) {
+            if (replies.length >= limit) break;
+            final nested = _dig(
+                moduleItem, ['item', 'itemContent', 'tweet_results', 'result']);
+            final reply = nested == null ? null : _toItem(nested);
+            if (reply == null) continue;
+            if (reply.nativeId == tweetId) continue;
+            replies.add(ThreadEntry(depth: depth, item: reply));
+            depth++;
+          }
+          continue;
+        }
+
+        final single = _dig(
+            entry, ['content', 'itemContent', 'tweet_results', 'result']);
+        final parsed = single == null ? null : _toItem(single);
+        if (parsed == null) continue;
+
+        if (parsed.nativeId == tweetId) {
+          seenFocal = true;
+          continue;
+        }
+        if (!seenFocal) {
+          ancestors.add(parsed);
+        } else if (replies.length < limit) {
+          replies.add(ThreadEntry(item: parsed));
+        }
+      }
+    }
+
+    return PostThread(ancestors: ancestors, replies: replies);
+  }
+
   Future<String> _resolveUserId(String username) async {
     final body = await _graphql(
       queryId: config.userByScreenNameQueryId,
@@ -341,6 +427,10 @@ class TwitterGuestClient extends SourceClient {
             const [])
         .cast<Map<String, dynamic>>();
 
+    // A quote tweet without its quoted post is bare commentary, which can
+    // read as the opposite of what was meant.
+    final quoted = _quotedFrom(tweet);
+
     return FeedItem(
       id: '${source.id}:${restId ?? legacy['id_str']}',
       sourceId: source.id,
@@ -352,19 +442,83 @@ class TwitterGuestClient extends SourceClient {
       url: screenName.isNotEmpty && restId != null
           ? 'https://x.com/$screenName/status/$restId'
           : null,
+      // Needed to ask for the conversation under this tweet. A retweet
+      // carries the original's id, which is the one with the replies.
+      nativeId: restId ?? legacy['id_str'] as String?,
       media: [
         for (final m in media)
-          if (m['media_url_https'] != null)
-            MediaItem(
-              url: m['media_url_https'] as String,
-              alt: m['ext_alt_text'] as String?,
-            ),
+          if (_mediaFrom(m) case final attachment?) attachment,
       ],
+      quoted: quoted,
       repostedBy: repostedBy,
       likes: legacy['favorite_count'] as int?,
       reposts: legacy['retweet_count'] as int?,
       replies: legacy['reply_count'] as int?,
       context: source.displayName,
+      createdAt: parseTwitterDate(legacy['created_at'] as String?) ??
+          DateTime.now().toUtc(),
+    );
+  }
+
+  /// One attachment. `photo`, `video` or `animated_gif` — the last two were
+  /// dropped before, turning a video tweet into a bare line of text.
+  static MediaItem? _mediaFrom(Map<String, dynamic> m) {
+    final poster = m['media_url_https'] as String?;
+    final alt = m['ext_alt_text'] as String?;
+    final type = m['type'] as String?;
+
+    if (type == 'video' || type == 'animated_gif') {
+      final url = _bestVariant(m);
+      if (url != null) {
+        final millis = _dig(m, ['video_info', 'duration_millis']) as num?;
+        return MediaItem(
+          url: url,
+          alt: alt,
+          kind: type == 'video' ? MediaKind.video : MediaKind.gif,
+          thumbnailUrl: poster,
+          durationSeconds: millis == null ? null : (millis / 1000).round(),
+        );
+      }
+    }
+    return poster == null ? null : MediaItem(url: poster, alt: alt);
+  }
+
+  /// X offers several encodings; take the highest-bitrate progressive MP4,
+  /// since the HLS variant carries no bitrate to compare and is often
+  /// account-gated.
+  static String? _bestVariant(Map<String, dynamic> m) {
+    final variants =
+        (_dig(m, ['video_info', 'variants']) as List? ?? const [])
+            .cast<Map<String, dynamic>>()
+            .where((v) => v['content_type'] == 'video/mp4')
+            .toList()
+      ..sort((a, b) => ((b['bitrate'] as num?) ?? 0)
+          .compareTo((a['bitrate'] as num?) ?? 0));
+    return variants.firstOrNull?['url'] as String?;
+  }
+
+  /// X nests the quoted tweet under quoted_status_result.
+  FeedItem? _quotedFrom(Map<String, dynamic> tweet) {
+    final result = _unwrap(_dig(tweet, ['quoted_status_result', 'result']));
+    if (result == null) return null;
+
+    final legacy = result['legacy'] as Map<String, dynamic>?;
+    if (legacy == null) return null;
+
+    final screenName = _userField(result, 'screen_name') ?? '';
+    final restId = result['rest_id'] as String?;
+
+    return FeedItem(
+      id: '${source.id}:quote:${restId ?? legacy['id_str']}',
+      sourceId: source.id,
+      network: Network.twitter,
+      author: _userField(result, 'name') ?? screenName,
+      handle: screenName.isNotEmpty ? '@$screenName' : null,
+      avatarUrl: _userField(result, 'profile_image_url_https'),
+      text: _cleanText(legacy['full_text'] as String? ?? '', legacy),
+      url: screenName.isNotEmpty && restId != null
+          ? 'https://x.com/$screenName/status/$restId'
+          : null,
       createdAt: parseTwitterDate(legacy['created_at'] as String?) ??
           DateTime.now().toUtc(),
     );

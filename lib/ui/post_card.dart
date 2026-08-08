@@ -7,7 +7,11 @@ import 'package:provider/provider.dart';
 import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
+import 'emoji_text.dart';
+import 'image_viewer_screen.dart';
 import 'post_actions.dart';
+import 'video_player_screen.dart';
+import 'post_extras.dart';
 import 'post_detail_screen.dart';
 import 'profile_screen.dart';
 
@@ -88,12 +92,18 @@ class _PostCardState extends State<PostCard> {
               if (item.title != null && item.title!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Text(
+                  child: EmojiText(
                     item.title!,
+                    emojis: item.emojis,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                ),
+              if (item.flair != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FlairChip(flair: item.flair!),
                 ),
               if (item.needsReveal && !_revealed)
                 Padding(
@@ -106,8 +116,9 @@ class _PostCardState extends State<PostCard> {
               if (item.text.isNotEmpty && (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text(
+                  child: EmojiText(
                     item.text,
+                    emojis: item.emojis,
                     style: theme.textTheme.bodyMedium,
                     maxLines: 12,
                     overflow: TextOverflow.ellipsis,
@@ -116,7 +127,17 @@ class _PostCardState extends State<PostCard> {
               if (item.imageUrls.isNotEmpty && (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
-                  child: Stack(
+                  child: GestureDetector(
+                    // Tapping the picture means "look at the picture"; the
+                    // rest of the card still opens the post.
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => item.media.first.kind.isPlayable
+                          // One tap to watch, rather than a gallery with a
+                          // single frame in it.
+                          ? VideoPlayerScreen(media: item.media.first)
+                          : ImageViewerScreen(media: item.media),
+                    )),
+                    child: Stack(
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(12),
@@ -150,9 +171,22 @@ class _PostCardState extends State<PostCard> {
                           bottom: 8,
                           child: _Chip(label: 'ALT', theme: theme),
                         ),
+                      if (item.media.first.kind.isPlayable)
+                        Positioned.fill(
+                          child: Center(
+                            child: _PlayBadge(media: item.media.first),
+                          ),
+                        ),
                     ],
+                    ),
                   ),
                 ),
+              if (!item.needsReveal || _revealed) ...[
+                if (item.quoted != null) QuotedPost(item: item.quoted!),
+                if (item.poll != null) PollView(poll: item.poll!),
+                if (item.linkCard != null && item.imageUrls.isEmpty)
+                  LinkCardView(card: item.linkCard!),
+              ],
               if (item.likes != null ||
                   item.reposts != null ||
                   item.replies != null)
@@ -215,9 +249,11 @@ class _Header extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                EmojiText(
                   item.author,
+                  emojis: item.emojis,
                   style: theme.textTheme.titleSmall,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
@@ -365,6 +401,54 @@ class _Chip extends StatelessWidget {
         label,
         style: theme.textTheme.labelSmall
             ?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+/// Marks a timeline image as a video, with how long it runs.
+class _PlayBadge extends StatelessWidget {
+  const _PlayBadge({required this.media});
+
+  final MediaItem media;
+
+  static String _duration(int seconds) {
+    final minutes = seconds ~/ 60;
+    return '$minutes:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seconds = media.durationSeconds;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: seconds == null ? 12 : 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            switch (media.kind) {
+              MediaKind.gif => Icons.gif_box_outlined,
+              MediaKind.audio => Icons.headphones,
+              _ => Icons.play_arrow,
+            },
+            color: Colors.white,
+            size: 26,
+          ),
+          if (seconds != null && seconds > 0) ...[
+            const SizedBox(width: 6),
+            Text(
+              _duration(seconds),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ],
       ),
     );
   }

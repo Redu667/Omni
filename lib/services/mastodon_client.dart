@@ -7,8 +7,11 @@ import 'source_client.dart';
 
 /// Mastodon timelines.
 ///
-/// With an access token, fetches the account's home timeline; without one,
-/// the instance's public (federated or local) timeline.
+/// Four kinds, in the order they're checked:
+///  - `hashtag`: a tag timeline, public and needing no account.
+///  - `list`: one of the account's own lists, which does need a token.
+///  - a token, and neither of the above: the account's home timeline.
+///  - nothing: the instance's public (federated or local) timeline.
 class MastodonClient extends SourceClient {
   const MastodonClient(super.source, super.httpClient);
 
@@ -17,6 +20,13 @@ class MastodonClient extends SourceClient {
     final instance = source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
     final token = source.params['accessToken'];
     final local = source.params['local'] == 'true';
+    final hashtag = source.params['hashtag']?.replaceFirst(RegExp(r'^#'), '');
+    final list = source.params['list'];
+    // Your own bookmarks or favourites, which are not timelines and page
+    // by their own ids rather than by status id.
+    final collection = _collections.contains(source.params['collection'])
+        ? source.params['collection']
+        : null;
 
     // Mastodon pages by asking for statuses older than an id.
     final query = {
@@ -27,8 +37,28 @@ class MastodonClient extends SourceClient {
     final Uri uri;
     final headers = <String, String>{};
     if (token != null && token.isNotEmpty) {
-      uri = Uri.https(instance, '/api/v1/timelines/home', query);
       headers['Authorization'] = 'Bearer $token';
+    }
+
+    if (collection != null) {
+      if (headers.isEmpty) {
+        throw SourceFetchException(source.displayName,
+            'your $collection are private — sign in to this instance to '
+            'read them');
+      }
+      uri = Uri.https(instance, '/api/v1/$collection', query);
+    } else if (hashtag != null && hashtag.isNotEmpty) {
+      // Tag timelines are public, so this works signed in or not.
+      uri = Uri.https(instance, '/api/v1/timelines/tag/$hashtag',
+          {...query, if (local) 'local': 'true'});
+    } else if (list != null && list.isNotEmpty) {
+      if (headers.isEmpty) {
+        throw SourceFetchException(source.displayName,
+            'lists are private — sign in to this instance to read one');
+      }
+      uri = Uri.https(instance, '/api/v1/timelines/list/$list', query);
+    } else if (headers.isNotEmpty) {
+      uri = Uri.https(instance, '/api/v1/timelines/home', query);
     } else {
       uri = Uri.https(instance, '/api/v1/timelines/public',
           {...query, if (local) 'local': 'true'});
@@ -37,13 +67,26 @@ class MastodonClient extends SourceClient {
     final res = await httpClient.get(uri, headers: headers);
     if (res.statusCode != 200) {
       throw SourceFetchException(
-          source.displayName, 'HTTP ${res.statusCode} from $instance');
+          source.displayName, _explain(res.statusCode, instance));
     }
 
     final statuses = jsonDecode(utf8.decode(res.bodyBytes)) as List;
-    final items = statuses
-        .map((s) => _toItem(s as Map<String, dynamic>))
-        .toList(growable: false);
+    final items = [
+      for (final status in statuses.cast<Map<String, dynamic>>())
+        // A filter set to "hide" means exactly that; showing it behind a
+        // reveal would be second-guessing the reader's own instance.
+        if (!hiddenByFilter(status)) _toItem(status),
+    ];
+
+    // Bookmarks and favourites are keyed by their own internal ids, which
+    // only appear in the Link header — paging them by status id silently
+    // returns the same page forever.
+    if (collection != null) {
+      return SourcePage(
+        items: items,
+        nextCursor: nextMaxId(res.headers['link']),
+      );
+    }
 
     // A short page means the end; otherwise page from the oldest id here.
     final oldestId = statuses.isEmpty
@@ -55,8 +98,67 @@ class MastodonClient extends SourceClient {
     );
   }
 
+  static const _collections = {'bookmarks', 'favourites'};
+
+  /// Pulls `max_id` out of a `Link: <...>; rel="next"` header.
+  ///
+  /// Returns null when there is no next page, which is how those endpoints
+  /// say "that's all of them".
+  static String? nextMaxId(String? linkHeader) {
+    if (linkHeader == null) return null;
+    for (final part in linkHeader.split(',')) {
+      if (!part.contains('rel="next"')) continue;
+      final start = part.indexOf('<');
+      final end = part.indexOf('>');
+      if (start < 0 || end <= start) continue;
+      return Uri.tryParse(part.substring(start + 1, end))
+          ?.queryParameters['max_id'];
+    }
+    return null;
+  }
+
+  /// A hashtag or list that doesn't exist 404s exactly like a wrong
+  /// instance, so name the likely cause instead of the number.
+  String _explain(int status, String instance) {
+    final what = source.params['hashtag'] != null
+        ? 'hashtag'
+        : source.params['list'] != null
+            ? 'list'
+            : null;
+    return switch (status) {
+      404 when what != null => 'No such $what on $instance.',
+      401 || 403 when what == 'list' =>
+        'That list belongs to another account, or the sign-in has expired.',
+      _ => 'HTTP $status from $instance',
+    };
+  }
+
+  /// The account's own lists, as `id: title` — used to offer a choice
+  /// rather than making the user find a numeric id.
+  Future<Map<String, String>> fetchLists() async {
+    final instance =
+        source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
+    final token = source.params['accessToken'];
+    if (token == null || token.isEmpty) return const {};
+
+    final res = await httpClient.get(
+      Uri.https(instance, '/api/v1/lists'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (res.statusCode != 200) return const {};
+
+    final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    if (decoded is! List) return const {};
+    return {
+      for (final entry in decoded.cast<Map<String, dynamic>>())
+        if (entry['id'] is String)
+          entry['id'] as String: entry['title'] as String? ?? 'Untitled list',
+    };
+  }
+
   @override
-  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
+  Future<PostThread> fetchThread(FeedItem item,
+      {int limit = 100, String? sort}) async {
     final statusId = item.nativeId;
     if (statusId == null) return PostThread.empty;
 
@@ -97,6 +199,61 @@ class MastodonClient extends SourceClient {
       ancestors: ancestors.map(_toItem).toList(growable: false),
       replies: entries,
     );
+  }
+
+  @override
+  bool get supportsSearch => true;
+
+  @override
+  Future<List<FeedItem>> search(String query, {int limit = 40}) async {
+    final instance =
+        source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
+    final token = source.params['accessToken'];
+
+    // A leading # means "the tag timeline", which is public and richer than
+    // status search — which most instances only serve to signed-in users.
+    final tag = query.trim().startsWith('#')
+        ? query.trim().substring(1).split(RegExp(r'\s')).first
+        : null;
+    if (tag != null && tag.isNotEmpty) {
+      final res = await httpClient.get(
+        Uri.https(instance, '/api/v1/timelines/tag/$tag', {'limit': '$limit'}),
+        headers: {
+          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+        },
+      );
+      if (res.statusCode != 200) return const [];
+      return [
+        for (final status
+            in (jsonDecode(utf8.decode(res.bodyBytes)) as List)
+                .cast<Map<String, dynamic>>())
+          if (!hiddenByFilter(status)) _toItem(status),
+      ];
+    }
+
+    // Status search is an authenticated endpoint on nearly every instance,
+    // and returning nothing is more honest than a 401 the reader can't act
+    // on from a search box.
+    if (token == null || token.isEmpty) return const [];
+
+    final res = await httpClient.get(
+      Uri.https(instance, '/api/v2/search', {
+        'q': query,
+        'type': 'statuses',
+        'limit': '$limit',
+        // Don't make the instance go fetch remote accounts mid-search.
+        'resolve': 'false',
+      }),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (res.statusCode != 200) return const [];
+
+    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    return [
+      for (final status
+          in (body['statuses'] as List? ?? const []).cast<Map<String, dynamic>>())
+        if (!hiddenByFilter(status)) _toItem(status),
+    ];
   }
 
   @override
@@ -144,6 +301,79 @@ class MastodonClient extends SourceClient {
         .toList(growable: false);
   }
 
+  /// Whether a status — or, for a boost, what it boosted — is filtered out.
+  static bool hiddenByFilter(Map<String, dynamic> status) =>
+      isFilteredOut(status['filtered']) ||
+      isFilteredOut((status['reblog'] as Map<String, dynamic>?)?['filtered']);
+
+  /// Whether the instance's own filters hide this status outright.
+  ///
+  /// Mastodon evaluates the reader's filters server-side and reports the
+  /// result on each status, so this respects their settings without
+  /// reimplementing keyword matching, whole-word rules and expiry.
+  static bool isFilteredOut(Object? filtered) {
+    if (filtered is! List) return false;
+    return filtered.whereType<Map<String, dynamic>>().any((result) =>
+        (result['filter'] as Map<String, dynamic>?)?['filter_action'] ==
+        'hide');
+  }
+
+  /// The title of a `warn` filter matching this status, if any — shown as
+  /// the reason the body starts hidden.
+  static String? _filterWarning(Object? filtered) {
+    if (filtered is! List) return null;
+    for (final result in filtered.whereType<Map<String, dynamic>>()) {
+      final filter = result['filter'] as Map<String, dynamic>?;
+      if (filter == null || filter['filter_action'] == 'hide') continue;
+      final title = (filter['title'] as String?)?.trim();
+      return title == null || title.isEmpty ? 'Filtered' : 'Filtered: $title';
+    }
+    return null;
+  }
+
+  /// Mastodon sends custom emoji as a list of `{shortcode, url}`; the UI
+  /// wants to look them up by code.
+  static Map<String, String> _emojiMap(Object? raw) {
+    if (raw is! List) return const {};
+    return {
+      for (final e in raw.whereType<Map<String, dynamic>>())
+        if (e['shortcode'] is String && e['url'] is String)
+          e['shortcode'] as String: e['url'] as String,
+    };
+  }
+
+  /// Mastodon attachments are `image`, `video`, `gifv` (a silent looping
+  /// clip) or `audio`. Video was previously dropped outright, which quietly
+  /// turned a video post into an empty one.
+  static MediaItem? _mediaFrom(Map<String, dynamic> m) {
+    final type = m['type'] as String?;
+    final alt = m['description'] as String?;
+    final preview = m['preview_url'] as String?;
+    final url = m['url'] as String?;
+
+    return switch (type) {
+      'image' when preview != null => MediaItem(url: preview, alt: alt),
+      'video' || 'gifv' when url != null => MediaItem(
+          url: url,
+          alt: alt,
+          kind: type == 'gifv' ? MediaKind.gif : MediaKind.video,
+          thumbnailUrl: preview,
+          durationSeconds:
+              (_dig(m, ['meta', 'original', 'duration']) as num?)?.round(),
+        ),
+      _ => null,
+    };
+  }
+
+  static Object? _dig(Map<String, dynamic> from, List<String> path) {
+    Object? node = from;
+    for (final key in path) {
+      if (node is! Map) return null;
+      node = node[key];
+    }
+    return node;
+  }
+
   FeedItem _toItem(Map<String, dynamic> status) {
     String? repostedBy;
     var s = status;
@@ -155,6 +385,7 @@ class MastodonClient extends SourceClient {
     final account = s['account'] as Map<String, dynamic>;
     final media = (s['media_attachments'] as List? ?? const [])
         .cast<Map<String, dynamic>>();
+    final filter = _filterWarning(s['filtered']);
 
     return FeedItem(
       id: '${source.id}:${status['id']}',
@@ -166,19 +397,26 @@ class MastodonClient extends SourceClient {
       text: htmlToPlainText(s['content'] as String? ?? ''),
       url: (s['url'] ?? s['uri']) as String?,
       nativeId: s['id'] as String?,
-      contentWarning: (s['spoiler_text'] as String?)?.trim().isNotEmpty == true
-          ? (s['spoiler_text'] as String).trim()
-          : null,
-      sensitive: s['sensitive'] as bool? ?? false,
+      poll: _pollFrom(s['poll'] as Map<String, dynamic>?),
+      linkCard: _cardFrom(s['card'] as Map<String, dynamic>?),
+      // A filter the reader set on their own instance outranks the
+      // author's own warning: they asked not to see this.
+      contentWarning: filter ??
+          ((s['spoiler_text'] as String?)?.trim().isNotEmpty == true
+              ? (s['spoiler_text'] as String).trim()
+              : null),
+      sensitive: filter != null || (s['sensitive'] as bool? ?? false),
       media: [
         for (final m in media)
-          if (m['type'] == 'image' && m['preview_url'] != null)
-            MediaItem(
-              url: m['preview_url'] as String,
-              alt: m['description'] as String?,
-            ),
+          if (_mediaFrom(m) case final attachment?) attachment,
       ],
       repostedBy: repostedBy,
+      // Both the post and the author can use custom emoji, and the author's
+      // are what make a display name render as intended.
+      emojis: {
+        ..._emojiMap(account['emojis']),
+        ..._emojiMap(s['emojis']),
+      },
       likes: s['favourites_count'] as int?,
       reposts: s['reblogs_count'] as int?,
       replies: s['replies_count'] as int?,
@@ -186,6 +424,39 @@ class MastodonClient extends SourceClient {
       createdAt:
           DateTime.tryParse(s['created_at'] as String? ?? '')?.toUtc() ??
               DateTime.now().toUtc(),
+    );
+  }
+
+  /// Poll posts carry their question in the body and their options here;
+  /// without this they render as a question with no answers.
+  static Poll? _pollFrom(Map<String, dynamic>? poll) {
+    if (poll == null) return null;
+    final options = (poll['options'] as List? ?? const [])
+        .cast<Map<String, dynamic>>();
+    if (options.isEmpty) return null;
+
+    return Poll(
+      options: [
+        for (final o in options)
+          PollOption(
+            title: o['title'] as String? ?? '',
+            votes: o['votes_count'] as int? ?? 0,
+          ),
+      ],
+      totalVotes: poll['votes_count'] as int? ?? 0,
+      expiresAt: DateTime.tryParse(poll['expires_at'] as String? ?? ''),
+      expired: poll['expired'] as bool? ?? false,
+    );
+  }
+
+  static LinkCard? _cardFrom(Map<String, dynamic>? card) {
+    final url = card?['url'] as String?;
+    if (card == null || url == null) return null;
+    return LinkCard(
+      url: url,
+      title: card['title'] as String?,
+      description: card['description'] as String?,
+      imageUrl: card['image'] as String?,
     );
   }
 

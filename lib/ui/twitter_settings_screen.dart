@@ -20,6 +20,8 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
   late final TextEditingController _bearer;
   late final TextEditingController _userByScreenName;
   late final TextEditingController _userTweets;
+  late final TextEditingController _homeTimeline;
+  late final TextEditingController _tweetDetail;
   late final TextEditingController _features;
   bool _saving = false;
 
@@ -31,6 +33,8 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
     _userByScreenName =
         TextEditingController(text: config.userByScreenNameQueryId);
     _userTweets = TextEditingController(text: config.userTweetsQueryId);
+    _homeTimeline = TextEditingController(text: config.homeTimelineQueryId);
+    _tweetDetail = TextEditingController(text: config.tweetDetailQueryId);
     _features = TextEditingController(text: config.featuresJson);
   }
 
@@ -39,6 +43,8 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
     _bearer.dispose();
     _userByScreenName.dispose();
     _userTweets.dispose();
+    _homeTimeline.dispose();
+    _tweetDetail.dispose();
     _features.dispose();
     super.dispose();
   }
@@ -48,6 +54,8 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
       bearerToken: _bearer.text.trim(),
       userByScreenNameQueryId: _userByScreenName.text.trim(),
       userTweetsQueryId: _userTweets.text.trim(),
+      homeTimelineQueryId: _homeTimeline.text.trim(),
+      tweetDetailQueryId: _tweetDetail.text.trim(),
       featuresJson: _features.text.trim(),
     );
     final messenger = ScaffoldMessenger.of(context);
@@ -71,6 +79,8 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
       _userByScreenName.text =
           TwitterGuestConfig.defaultUserByScreenNameQueryId;
       _userTweets.text = TwitterGuestConfig.defaultUserTweetsQueryId;
+      _homeTimeline.text = TwitterGuestConfig.defaultHomeTimelineQueryId;
+      _tweetDetail.text = TwitterGuestConfig.defaultTweetDetailQueryId;
       _features.text = TwitterGuestConfig.defaultFeaturesJson;
     });
   }
@@ -159,6 +169,17 @@ class _TwitterSettingsScreenState extends State<TwitterSettingsScreen> {
             controller: _userByScreenName,
             label: 'UserByScreenName query ID',
             help: 'Turns a @handle into the numeric ID the timeline call needs.',
+          ),
+          _Field(
+            controller: _tweetDetail,
+            label: 'TweetDetail query ID',
+            help: 'Loads the replies under a tweet. When this is stale, posts '
+                'still open — they just show no conversation.',
+          ),
+          _Field(
+            controller: _homeTimeline,
+            label: 'HomeTimeline query ID',
+            help: 'Only used by sources set to follow your own timeline.',
           ),
           _Field(
             controller: _bearer,

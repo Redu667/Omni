@@ -6,9 +6,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
+import '../services/thread_folding.dart';
 import '../state/app_state.dart';
+import 'emoji_text.dart';
+import 'image_viewer_screen.dart';
 import 'post_actions.dart';
+import 'post_extras.dart';
 import 'post_view_screen.dart';
+import 'video_player_screen.dart';
 import 'profile_screen.dart';
 
 /// Renders a post with Flutter widgets — same visual language as the
@@ -28,6 +33,17 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   bool _loading = true;
   String? _threadError;
 
+  /// Held separately from [_thread] because loading more replies splices
+  /// them into place rather than replacing the whole conversation.
+  List<ThreadEntry> _replies = const [];
+  MoreReplies? _rootMore;
+
+  String? _sort;
+  final _expanding = <MoreReplies>{};
+
+  /// Comments whose replies are folded away, by id.
+  final _collapsed = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -40,10 +56,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _threadError = null;
     });
     try {
-      final thread = await context.read<AppState>().fetchThread(widget.item);
+      final thread =
+          await context.read<AppState>().fetchThread(widget.item, sort: _sort);
       if (mounted) {
         setState(() {
           _thread = thread;
+          _replies = [...thread.replies];
+          _rootMore = thread.more;
+          _expanding.clear();
           _loading = false;
         });
       }
@@ -55,6 +75,83 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         });
       }
     }
+  }
+
+  /// Reddit takes at most 100 ids at a time, so a very long thread needs the
+  /// button more than once. What's left over becomes the next batch.
+  static MoreReplies? _remainderOf(MoreReplies more, int loaded) {
+    final rest = more.ids.skip(100).toList();
+    if (rest.isEmpty) return null;
+    return MoreReplies(
+      count: (more.count - loaded).clamp(rest.length, more.count),
+      ids: rest,
+      depth: more.depth,
+    );
+  }
+
+  /// [under] is the reply whose replies were truncated, or null for the
+  /// top-level "more comments".
+  Future<void> _loadMore(MoreReplies more, {ThreadEntry? under}) async {
+    setState(() => _expanding.add(more));
+    try {
+      final loaded = await context
+          .read<AppState>()
+          .fetchMoreReplies(widget.item, more, sort: _sort);
+      if (!mounted) return;
+
+      setState(() {
+        _expanding.remove(more);
+        final remainder = _remainderOf(more, loaded.length);
+        final replies = [..._replies];
+
+        if (under == null) {
+          replies.addAll(loaded);
+          _rootMore = remainder;
+        } else {
+          final at = replies.indexOf(under);
+          if (at < 0) return;
+          replies[at] = under.withMore(remainder);
+          // Slot them in after everything already nested under this
+          // comment, which is where the missing replies belong.
+          var end = at + 1;
+          while (end < replies.length && replies[end].depth > under.depth) {
+            end++;
+          }
+          replies.insertAll(end, loaded);
+        }
+        _replies = replies;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _expanding.remove(more));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't load the rest of the thread")),
+      );
+    }
+  }
+
+  Future<void> _pickSort(Map<String, String> sorts) async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final entry in sorts.entries)
+              RadioListTile<String>(
+                value: entry.key,
+                groupValue: _sort ?? sorts.keys.first,
+                title: Text(entry.value),
+                onChanged: (v) => Navigator.of(sheetContext).pop(v),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || chosen == _sort) return;
+    setState(() => _sort = chosen);
+    await _loadThread();
   }
 
   Future<void> _openOriginal({required bool external}) async {
@@ -75,7 +172,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final theme = Theme.of(context);
     final thread = _thread ?? PostThread.empty;
     final ancestors = thread.ancestors;
-    final replies = thread.replies;
+    final replies = foldThread(_replies, _collapsed);
+    final sorts = context.read<AppState>().commentSorts(item);
+    final rootMore = _rootMore;
 
     return Scaffold(
       appBar: AppBar(
@@ -109,7 +208,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         onRefresh: _loadThread,
         child: ListView.builder(
           padding: const EdgeInsets.only(bottom: 32),
-          itemCount: ancestors.length + replies.length + 2,
+          itemCount:
+              ancestors.length + replies.length + 2 + (rootMore == null ? 0 : 1),
           itemBuilder: (context, index) {
             // What this post was replying to, oldest first.
             if (index < ancestors.length) {
@@ -132,9 +232,35 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 count: replies.length,
                 network: item.network,
                 onRetry: _loadThread,
+                sorts: sorts,
+                sort: _sort,
+                onPickSort: sorts.isEmpty ? null : () => _pickSort(sorts),
               );
             }
-            return _ReplyTile(entry: replies[offset - 2], theme: theme);
+            if (offset - 2 >= replies.length) {
+              return _LoadMoreButton(
+                more: rootMore!,
+                loading: _expanding.contains(rootMore),
+                onPressed: () => _loadMore(rootMore),
+              );
+            }
+            final row = replies[offset - 2];
+            final entry = row.entry;
+            return _ReplyTile(
+              entry: entry,
+              theme: theme,
+              expanding: entry.more != null && _expanding.contains(entry.more),
+              onLoadMore: entry.more == null
+                  ? null
+                  : () => _loadMore(entry.more!, under: entry),
+              hiddenReplies: row.hidden,
+              collapsed: _collapsed.contains(entry.item.id),
+              onToggleCollapse: () => setState(() {
+                if (!_collapsed.remove(entry.item.id)) {
+                  _collapsed.add(entry.item.id);
+                }
+              }),
+            );
           },
         ),
       ),
@@ -254,6 +380,11 @@ class _PostBodyState extends State<_PostBody> {
               ],
             ),
           ),
+          if (item.flair != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FlairChip(flair: item.flair!),
+            ),
           if (item.title?.isNotEmpty ?? false)
             Padding(
               padding: const EdgeInsets.only(top: 16),
@@ -307,38 +438,72 @@ class _PostBodyState extends State<_PostBody> {
           if (item.body.isNotEmpty && !hidden)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: SelectableText(
-                item.body,
-                style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
-              ),
+              child: item.emojis.isEmpty
+                  ? SelectableText(
+                      item.body,
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+                    )
+                  // Custom emoji need inline images, which selectable text
+                  // can't carry — the pictures matter more here.
+                  : EmojiText(
+                      item.body,
+                      emojis: item.emojis,
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+                    ),
             ),
           if (item.imageUrls.isNotEmpty && !hidden)
             Padding(
               padding: const EdgeInsets.only(top: 16),
               child: Column(
                 children: [
-                  for (final image in item.media)
+                  for (final (index, image) in item.media.indexed)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Semantics(
-                              label: image.alt,
-                              image: true,
-                              child: CachedNetworkImage(
-                                imageUrl: image.url,
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                                placeholder: (_, _) => Container(
-                                  height: 180,
-                                  color:
-                                      theme.colorScheme.surfaceContainerHighest,
-                                ),
-                                errorWidget: (_, _, _) =>
-                                    const SizedBox.shrink(),
+                          GestureDetector(
+                            // Opens the picture full-screen, where it can be
+                            // zoomed — inline it's capped to the column
+                            // width. A video goes straight to the player.
+                            onTap: () =>
+                                Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => image.kind.isPlayable
+                                  ? VideoPlayerScreen(media: image)
+                                  : ImageViewerScreen(
+                                      media: item.media,
+                                      initialIndex: index,
+                                    ),
+                            )),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Semantics(
+                                    label: image.alt,
+                                    image: true,
+                                    child: CachedNetworkImage(
+                                      imageUrl: image.previewUrl,
+                                      fit: BoxFit.contain,
+                                      width: double.infinity,
+                                      placeholder: (_, _) => Container(
+                                        height: 180,
+                                        color: theme.colorScheme
+                                            .surfaceContainerHighest,
+                                      ),
+                                      errorWidget: (_, _, _) =>
+                                          const SizedBox.shrink(),
+                                    ),
+                                  ),
+                                  if (image.kind.isPlayable)
+                                    const CircleAvatar(
+                                      radius: 28,
+                                      backgroundColor: Colors.black54,
+                                      child: Icon(Icons.play_arrow,
+                                          size: 36, color: Colors.white),
+                                    ),
+                                ],
                               ),
                             ),
                           ),
@@ -362,6 +527,12 @@ class _PostBodyState extends State<_PostBody> {
                 ],
               ),
             ),
+          if (!hidden) ...[
+            if (item.quoted != null)
+              QuotedPost(item: item.quoted!, compact: false),
+            if (item.poll != null) PollView(poll: item.poll!),
+            if (item.linkCard != null) LinkCardView(card: item.linkCard!),
+          ],
           Padding(
             padding: const EdgeInsets.only(top: 16),
             child: Text(
@@ -416,6 +587,9 @@ class _ThreadHeader extends StatelessWidget {
     required this.count,
     required this.network,
     required this.onRetry,
+    this.sorts = const {},
+    this.sort,
+    this.onPickSort,
   });
 
   final bool loading;
@@ -423,6 +597,11 @@ class _ThreadHeader extends StatelessWidget {
   final int count;
   final Network network;
   final VoidCallback onRetry;
+
+  /// Empty where the network has no comment ordering to choose from.
+  final Map<String, String> sorts;
+  final String? sort;
+  final VoidCallback? onPickSort;
 
   @override
   Widget build(BuildContext context) {
@@ -475,20 +654,89 @@ class _ThreadHeader extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-      child: Text(
-        '$count ${count == 1 ? 'reply' : 'replies'}',
-        style: theme.textTheme.titleSmall,
+      padding: const EdgeInsets.fromLTRB(16, 20, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$count ${count == 1 ? 'reply' : 'replies'}',
+              style: theme.textTheme.titleSmall,
+            ),
+          ),
+          if (onPickSort != null)
+            TextButton.icon(
+              onPressed: onPickSort,
+              icon: const Icon(Icons.sort, size: 18),
+              label: Text(sorts[sort ?? sorts.keys.first] ?? 'Sort'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Load the N replies the network held back."
+class _LoadMoreButton extends StatelessWidget {
+  const _LoadMoreButton({
+    required this.more,
+    required this.loading,
+    required this.onPressed,
+  });
+
+  final MoreReplies more;
+  final bool loading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: loading ? null : onPressed,
+          icon: loading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.expand_more, size: 18),
+          label: Text(
+            loading
+                ? 'Loading…'
+                : '${more.count} more '
+                    '${more.count == 1 ? 'reply' : 'replies'}',
+          ),
+        ),
       ),
     );
   }
 }
 
 class _ReplyTile extends StatelessWidget {
-  const _ReplyTile({required this.entry, required this.theme});
+  const _ReplyTile({
+    required this.entry,
+    required this.theme,
+    this.expanding = false,
+    this.onLoadMore,
+    this.hiddenReplies = 0,
+    this.collapsed = false,
+    this.onToggleCollapse,
+  });
 
   final ThreadEntry entry;
   final ThemeData theme;
+
+  /// Null unless this comment has replies the network held back.
+  final VoidCallback? onLoadMore;
+  final bool expanding;
+
+  /// How many replies this comment is currently folding away. Zero when
+  /// open, and also when a comment with no replies is folded.
+  final int hiddenReplies;
+  final bool collapsed;
+  final VoidCallback? onToggleCollapse;
 
   /// Indentation stops growing past a few levels so deep chains stay readable
   /// on a phone.
@@ -515,26 +763,65 @@ class _ReplyTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  item.handle ?? item.author,
-                  style: theme.textTheme.labelLarge,
-                  overflow: TextOverflow.ellipsis,
+          // The header is the fold handle: the body can't be, because
+          // selecting text there would fold the comment out from under you.
+          InkWell(
+            onTap: onToggleCollapse,
+            child: Row(
+              children: [
+                if (onToggleCollapse != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(
+                      collapsed ? Icons.chevron_right : Icons.expand_more,
+                      size: 16,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                Flexible(
+                  child: EmojiText(
+                    item.handle ?? item.author,
+                    emojis: item.emojis,
+                    style: theme.textTheme.labelLarge,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-              Text(
-                timeago.format(item.createdAt, locale: 'en_short'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
+                if (hiddenReplies > 0) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    '+$hiddenReplies',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                Text(
+                  timeago.format(item.createdAt, locale: 'en_short'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 4),
-          SelectableText(item.text, style: theme.textTheme.bodyMedium),
-          if (item.likes != null)
+          if (collapsed)
+            Text(
+              item.text,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.outline),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            )
+          else if (item.emojis.isEmpty)
+            SelectableText(item.text, style: theme.textTheme.bodyMedium)
+          else
+            EmojiText(item.text,
+                emojis: item.emojis, style: theme.textTheme.bodyMedium),
+          if (item.likes != null && !collapsed)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Row(
@@ -553,6 +840,12 @@ class _ReplyTile extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          if (entry.more != null && onLoadMore != null && !collapsed)
+            _LoadMoreButton(
+              more: entry.more!,
+              loading: expanding,
+              onPressed: onLoadMore!,
             ),
         ],
       ),

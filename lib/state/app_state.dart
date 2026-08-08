@@ -7,7 +7,9 @@ import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_cache.dart';
 import '../services/feed_repository.dart';
+import '../services/reddit_auth.dart';
 import '../services/saved_store.dart';
+import '../services/source_health.dart';
 import '../services/source_store.dart';
 import '../services/settings_store.dart';
 import '../services/source_validator.dart';
@@ -24,14 +26,19 @@ class AppState extends ChangeNotifier {
     TwitterSessionStore? twitterSessionStore,
     SavedStore? savedStore,
     FeedCache? cache,
-  })  : _repository = repository ?? FeedRepository(),
+    RedditCredentialStore? redditCredentials,
+    RedditAuth? redditAuth,
+  })  : _repository = repository ??
+            FeedRepository(redditAuth: redditAuth ?? RedditAuth()),
         _store = store ?? SourceStore(),
-        _validator = validator ?? SourceValidator(),
+        _validator = validator ??
+            SourceValidator(redditAuth: redditAuth ?? RedditAuth()),
         _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore(),
         _settingsStore = settingsStore ?? SettingsStore(),
         _twitterSessionStore = twitterSessionStore ?? TwitterSessionStore(),
         _savedStore = savedStore ?? SavedStore(),
-        _cache = cache ?? FeedCache();
+        _cache = cache ?? FeedCache(),
+        _redditCredentials = redditCredentials ?? RedditCredentialStore();
 
   final FeedRepository _repository;
   final SourceStore _store;
@@ -41,14 +48,42 @@ class AppState extends ChangeNotifier {
   final TwitterSessionStore _twitterSessionStore;
   final SavedStore _savedStore;
   final FeedCache _cache;
+  final RedditCredentialStore _redditCredentials;
+
+  String? _redditClientId;
+
+  /// The Reddit app ID, if the user has supplied one. Without it, Reddit
+  /// sources fall back to anonymous requests and the blocking they attract.
+  String? get redditClientId => _redditClientId;
+
+  Future<void> setRedditClientId(String? id) async {
+    final trimmed = id?.trim();
+    _redditClientId = (trimmed?.isEmpty ?? true) ? null : trimmed;
+    await _redditCredentials.saveClientId(_redditClientId);
+    notifyListeners();
+    if (_sources.any((s) => s.network == Network.reddit && s.enabled)) {
+      await refresh();
+    }
+  }
 
   Set<String> _readIds = {};
   bool _hideRead = false;
+  bool _markReadOnScroll = false;
+
+  /// Marked read by scrolling since the last refresh.
+  ///
+  /// Held apart from the hide-read filter on purpose: pulling posts out of
+  /// the list as they pass the top of the screen moves everything under the
+  /// reader's thumb. They dim immediately and disappear on the next refresh.
+  final Set<String> _readWhileScrolling = {};
 
   bool isRead(FeedItem item) => _readIds.contains(item.id);
 
   /// Whether read posts are hidden outright rather than just dimmed.
   bool get hideRead => _hideRead;
+
+  /// Whether scrolling a post off the top of the screen marks it read.
+  bool get markReadOnScroll => _markReadOnScroll;
 
   int get unreadCount =>
       _visibleItems.where((i) => !_readIds.contains(i.id)).length;
@@ -59,8 +94,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setMarkReadOnScroll(bool value) async {
+    _markReadOnScroll = value;
+    await _settingsStore.saveMarkReadOnScroll(value);
+    notifyListeners();
+  }
+
   Future<void> markRead(FeedItem item) async {
     if (!_readIds.add(item.id)) return;
+    await _settingsStore.saveReadIds(_readIds);
+    notifyListeners();
+  }
+
+  /// Marks everything scrolled past, in one go — the scroll listener fires
+  /// far more often than the list actually advances.
+  Future<void> markScrolledRead(Iterable<String> ids) async {
+    final fresh = ids.where(_readIds.add).toList();
+    if (fresh.isEmpty) return;
+    _readWhileScrolling.addAll(fresh);
     await _settingsStore.saveReadIds(_readIds);
     notifyListeners();
   }
@@ -75,6 +126,11 @@ class AppState extends ChangeNotifier {
   /// network, so the UI can say so rather than implying it is current.
   bool _fromCache = false;
   bool get showingCached => _fromCache;
+
+  /// The last refresh couldn't reach anything at all. Distinguished from
+  /// per-source errors because "no connection" is one fact, not five.
+  bool _offline = false;
+  bool get offline => _offline;
 
   List<FeedItem> _saved = [];
 
@@ -228,6 +284,21 @@ class AppState extends ChangeNotifier {
   /// Where each source got to. Empty once everything has run out.
   Map<String, String> _cursors = {};
 
+  Set<String> _staleSourceIds = {};
+
+  /// Sources currently showing their last-known posts because a refresh
+  /// failed. Their content is still in the timeline.
+  Set<String> get staleSourceIds => Set.unmodifiable(_staleSourceIds);
+
+  SourceHealth healthOf(String sourceId) => _repository.healthOf(sourceId);
+
+  /// Names of sources that are failing but still contributing posts, for a
+  /// message that says what's actually happening.
+  List<String> get staleSourceNames => [
+        for (final s in _sources)
+          if (_staleSourceIds.contains(s.id)) s.displayName,
+      ];
+
   /// null = show everything; otherwise only this network.
   Network? _filter;
 
@@ -318,9 +389,15 @@ class AppState extends ChangeNotifier {
         !_filters.hides(i));
   }
 
-  List<FeedItem> get items => List.unmodifiable(
-      _hideRead ? _visibleItems.where((i) => !_readIds.contains(i.id))
-                : _visibleItems);
+  List<FeedItem> get items => List.unmodifiable(_hideRead
+      ? _visibleItems.where((i) =>
+          !_readIds.contains(i.id) || _readWhileScrolling.contains(i.id))
+      : _visibleItems);
+
+  /// Every post loaded, ignoring the collection, network chip and mute
+  /// filters. Search uses this: when you're hunting for a specific post you
+  /// don't want the answer withheld because a chip is set somewhere else.
+  List<FeedItem> get allItems => List.unmodifiable(_items);
 
   /// Networks that currently have at least one configured source.
   Set<Network> get activeNetworks => _sources.map((s) => s.network).toSet();
@@ -329,6 +406,7 @@ class AppState extends ChangeNotifier {
     _sources = await _store.load();
     _readIds = await _settingsStore.loadReadIds();
     _hideRead = await _settingsStore.loadHideRead();
+    _markReadOnScroll = await _settingsStore.loadMarkReadOnScroll();
     _collections = await _settingsStore.loadCollections();
 
     // Show the cached timeline immediately; the network refresh follows.
@@ -344,14 +422,35 @@ class AppState extends ChangeNotifier {
     _useDynamicColour = await _settingsStore.loadDynamicColour();
     _twitterAccount = await _twitterSessionStore.load();
     _saved = await _savedStore.load();
+    _redditClientId = await _redditCredentials.loadClientId();
     _initialized = true;
     notifyListeners();
     if (_sources.isNotEmpty) await refresh();
   }
 
-  Future<PostThread> fetchThread(FeedItem item) =>
+  Future<PostThread> fetchThread(FeedItem item, {String? sort}) =>
       _repository.fetchThread(item, _sources,
+          twitterConfig: _twitterConfig,
+          twitterAccount: _twitterAccount,
+          sort: sort);
+
+  Future<List<ThreadEntry>> fetchMoreReplies(FeedItem item, MoreReplies more,
+          {String? sort}) =>
+      _repository.fetchMoreReplies(item, more, _sources,
+          twitterConfig: _twitterConfig,
+          twitterAccount: _twitterAccount,
+          sort: sort);
+
+  /// Asks the networks themselves, rather than the posts already loaded.
+  Future<List<FeedItem>> searchNetworks(String query) =>
+      _repository.search(query, _sources,
           twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
+
+  bool get canSearchNetworks =>
+      _repository.canSearch(_sources, twitterConfig: _twitterConfig);
+
+  Map<String, String> commentSorts(FeedItem item) =>
+      _repository.commentSorts(item, _sources, twitterConfig: _twitterConfig);
 
   Future<void> updateTwitterConfig(TwitterGuestConfig config) async {
     _twitterConfig = config;
@@ -362,16 +461,27 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh() async {
+  /// [force] bypasses the per-source retry backoff, because someone
+  /// watching the screen and pulling to refresh is asking for a real
+  /// attempt rather than a policy.
+  Future<void> refresh({bool force = false}) async {
     if (_loading) return;
     _loading = true;
     _errors = [];
     notifyListeners();
 
     final result = await _repository.fetchAll(_sources,
-        twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
-    // A refresh that failed everywhere shouldn't wipe a usable cache.
-    if (result.items.isEmpty && result.errors.isNotEmpty && _items.isNotEmpty) {
+        twitterConfig: _twitterConfig,
+        twitterAccount: _twitterAccount,
+        force: force);
+
+    // A refresh that failed everywhere shouldn't wipe a usable cache —
+    // including when the failure was having no connection, which produces
+    // no per-source errors to check for.
+    _offline = result.offline;
+    if (result.items.isEmpty &&
+        (result.errors.isNotEmpty || result.offline) &&
+        _items.isNotEmpty) {
       _errors = result.errors;
       _loading = false;
       notifyListeners();
@@ -381,7 +491,11 @@ class AppState extends ChangeNotifier {
     _items = result.items;
     _errors = result.errors;
     _cursors = result.cursors;
+    _staleSourceIds = result.staleSourceIds;
     _fromCache = false;
+    // Posts held back from the hide-read filter while they were on screen
+    // can go now: the reader has left the list.
+    _readWhileScrolling.clear();
     _loading = false;
     notifyListeners();
     await _cache.save(_items);

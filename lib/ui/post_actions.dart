@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
@@ -56,6 +57,17 @@ Future<void> showPostActions(BuildContext context, FeedItem item) async {
             },
           ),
           if (item.url != null) ...[
+            ListTile(
+              leading: const Icon(Icons.share_outlined),
+              title: const Text('Share'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                // The link alone is what other apps can actually do
+                // something with; the title rides along as the subject for
+                // targets that use one, like email.
+                Share.share(item.url!, subject: item.title ?? item.author);
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.open_in_browser),
               title: const Text('Open in browser'),
