@@ -31,7 +31,10 @@ Moshidon, but spanning multiple networks.
   everything under it.
 - **Photos, video and audio** — tap an image for full screen with pinch-zoom
   and swipe-through galleries; video plays in-app on Mastodon, Bluesky,
-  Reddit and X, and podcast enclosures play with their cover art.
+  Reddit and X, and podcast enclosures play with their cover art. Anything
+  can be saved to your gallery — Reddit videos with their sound, which takes
+  fetching the picture and audio separately and joining them, because that
+  is how Reddit stores them.
 - **Search** — over every post already loaded: instant, offline, and covering
   titles, bodies, authors, flair, alt text, quoted posts and link cards.
 - **Open any account** — tap an author anywhere to see their recent posts,
@@ -150,14 +153,42 @@ Pre-release APKs are built and published by the **Release APK** GitHub Actions
 workflow (`.github/workflows/release.yml`) — push a `v*` tag or run the
 workflow manually with a tag name, and a signed APK lands on the release page.
 
-Release builds are currently signed with `android/app/dev-keystore.jks`, a
-**development keystore committed to this repo** so pre-releases work with zero
-setup. Anyone with the repo can sign APKs with it, so before distributing the
-app for real, generate a private keystore and point the build at it via the
-`OMNI_KEYSTORE_PATH`, `OMNI_KEYSTORE_PASSWORD`, `OMNI_KEY_ALIAS` and
-`OMNI_KEY_PASSWORD` environment variables (e.g. from GitHub Actions secrets).
-Note that switching keys changes the APK signature, so devices with an older
-install must uninstall before updating.
+### Signing
+
+Release builds fall back to `android/app/dev-keystore.jks`, a **development
+keystore committed to this repo** so pre-releases work with zero setup.
+Anyone with the repo can sign APKs with it, so it is fine for builds you
+install yourself and not fine for anything you hand to someone else. Every
+release says at the bottom of its notes which key signed it.
+
+To switch to a real key, run:
+
+```sh
+./tools/setup-release-signing.sh
+```
+
+It generates a 4096-bit keystore outside the repo (`~/.omni-signing/` by
+default), uploads it and its password to GitHub Actions as secrets, and
+prints the fingerprint and password once so you can back them up. From then
+on the release workflow signs with your key; without the secrets it keeps
+using the dev key and warns in the build log. Needs a JDK for `keytool` and
+the [GitHub CLI](https://cli.github.com), signed in.
+
+Two things about Android signing worth knowing before you run it:
+
+- **The key is permanent.** Android identifies an app by package name plus
+  signing key, so changing the key later means existing users cannot update
+  — they have to uninstall, losing their sources and saved posts. Losing the
+  key has the same effect and no remedy. Back up the file *and* the password.
+- **Switching from the dev key is itself that break.** Anyone running a
+  dev-signed pre-release must uninstall before installing a properly signed
+  build, which is why it costs least to do this early.
+
+If Omni ever goes to the Play Store, use **Play App Signing**: you upload
+with the key above and Google holds the actual app signing key, so a lost
+upload key can be reset. That is the only route with a safety net. The
+package name (`dev.omni.omni`) is as permanent as the key, so it is worth
+being happy with that too.
 
 ## App icon
 
