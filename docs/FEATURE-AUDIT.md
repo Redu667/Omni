@@ -8,6 +8,21 @@ Status key: **✗** missing · **◐** partial · **✓** done
 
 ---
 
+## Resilience
+
+How Omni behaves when a service says no, which on Reddit and X is often.
+
+| Behaviour | Status | Notes |
+|---|---|---|
+| **Retry with backoff** | ✓ | Transient failures (429, 5xx, timeouts, dropped connections) retry with jittered exponential backoff. 403 and 404 are terminal — retrying a block just delays the fallback. |
+| **`Retry-After`** | ✓ | Honoured when short; a server asking for ten minutes is told no and the refresh returns instead of blocking. |
+| **Graceful degradation** | ✓ | A source that starts failing keeps its last posts in the timeline, marked stale, instead of vanishing. |
+| **Per-source health** | ✓ | Consecutive failures and last success tracked, so a blip reads differently from a week-long outage. |
+| **Reddit authentication** | ✓ | An optional app ID makes requests authenticated, which is the actual fix for its 403s rather than the Atom fallback's damage limitation. |
+| **Conditional requests** | ◐ | RSS sends `If-None-Match`/`If-Modified-Since` and reuses parsed items on a 304. Not yet applied to the JSON APIs. |
+| **Per-source retry scheduling** | ✗ | A persistently failing source is retried as often as a healthy one. |
+| **Offline detection** | ✗ | No connectivity awareness; a refresh with no signal fails per-source rather than being skipped. |
+
 ## Cross-cutting — affects every source
 
 These matter more than any single network's features, because they shape
@@ -98,9 +113,9 @@ Closest comparison: Infinity, RedReader, Boost.
 | **Polls** | ✗ | |
 | **Flair** | ✗ | Neither shown nor filterable, though flair is how many subreddits organise themselves. |
 | **User profile feeds** | ◐ | Tapping an author shows their submitted posts; can't add `u/someone` as a standing source. |
-| **Logged-in Reddit** | ✗ | No account, so no home feed, saved posts, subscriptions, or voting. Would also sidestep the blocking below. |
+| **Logged-in Reddit** | ◐ | An app ID authenticates requests and sidesteps the blocking. A full user login (home feed, saved posts, subscriptions) is still missing. |
 | **Crossposts** | ✗ | Render as empty posts. |
-| **Atom fallback is lossy** | ◐ | When Reddit blocks the JSON API (common, even for public subreddits) Omni falls back to Atom, which carries no score, comment count, or self-text. |
+| **Atom fallback is lossy** | ◐ | Still the last resort when unauthenticated and blocked — no score, comment count or self-text. Configuring an app ID avoids needing it. |
 
 ---
 
@@ -140,7 +155,7 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 | **Unread counts per feed** | ✗ | |
 | **Podcast enclosures** | ✗ | Audio enclosures are ignored — no playback, no queue. |
 | **Per-feed favicon** | ✗ | All feeds share one generic icon, making a mixed timeline harder to scan. |
-| **Conditional requests** | ✗ | No `ETag`/`If-Modified-Since`, so every refresh refetches everything in full. Wasteful for both you and the publisher. |
+| **Conditional requests** | ✓ | `ETag`/`If-Modified-Since` sent, with a 304 reusing already-parsed items. |
 | **JSON Feed** | ✗ | |
 
 ---

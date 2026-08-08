@@ -7,7 +7,9 @@ import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_cache.dart';
 import '../services/feed_repository.dart';
+import '../services/reddit_auth.dart';
 import '../services/saved_store.dart';
+import '../services/source_health.dart';
 import '../services/source_store.dart';
 import '../services/settings_store.dart';
 import '../services/source_validator.dart';
@@ -24,14 +26,19 @@ class AppState extends ChangeNotifier {
     TwitterSessionStore? twitterSessionStore,
     SavedStore? savedStore,
     FeedCache? cache,
-  })  : _repository = repository ?? FeedRepository(),
+    RedditCredentialStore? redditCredentials,
+    RedditAuth? redditAuth,
+  })  : _repository = repository ??
+            FeedRepository(redditAuth: redditAuth ?? RedditAuth()),
         _store = store ?? SourceStore(),
-        _validator = validator ?? SourceValidator(),
+        _validator = validator ??
+            SourceValidator(redditAuth: redditAuth ?? RedditAuth()),
         _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore(),
         _settingsStore = settingsStore ?? SettingsStore(),
         _twitterSessionStore = twitterSessionStore ?? TwitterSessionStore(),
         _savedStore = savedStore ?? SavedStore(),
-        _cache = cache ?? FeedCache();
+        _cache = cache ?? FeedCache(),
+        _redditCredentials = redditCredentials ?? RedditCredentialStore();
 
   final FeedRepository _repository;
   final SourceStore _store;
@@ -41,6 +48,23 @@ class AppState extends ChangeNotifier {
   final TwitterSessionStore _twitterSessionStore;
   final SavedStore _savedStore;
   final FeedCache _cache;
+  final RedditCredentialStore _redditCredentials;
+
+  String? _redditClientId;
+
+  /// The Reddit app ID, if the user has supplied one. Without it, Reddit
+  /// sources fall back to anonymous requests and the blocking they attract.
+  String? get redditClientId => _redditClientId;
+
+  Future<void> setRedditClientId(String? id) async {
+    final trimmed = id?.trim();
+    _redditClientId = (trimmed?.isEmpty ?? true) ? null : trimmed;
+    await _redditCredentials.saveClientId(_redditClientId);
+    notifyListeners();
+    if (_sources.any((s) => s.network == Network.reddit && s.enabled)) {
+      await refresh();
+    }
+  }
 
   Set<String> _readIds = {};
   bool _hideRead = false;
@@ -228,6 +252,21 @@ class AppState extends ChangeNotifier {
   /// Where each source got to. Empty once everything has run out.
   Map<String, String> _cursors = {};
 
+  Set<String> _staleSourceIds = {};
+
+  /// Sources currently showing their last-known posts because a refresh
+  /// failed. Their content is still in the timeline.
+  Set<String> get staleSourceIds => Set.unmodifiable(_staleSourceIds);
+
+  SourceHealth healthOf(String sourceId) => _repository.healthOf(sourceId);
+
+  /// Names of sources that are failing but still contributing posts, for a
+  /// message that says what's actually happening.
+  List<String> get staleSourceNames => [
+        for (final s in _sources)
+          if (_staleSourceIds.contains(s.id)) s.displayName,
+      ];
+
   /// null = show everything; otherwise only this network.
   Network? _filter;
 
@@ -344,6 +383,7 @@ class AppState extends ChangeNotifier {
     _useDynamicColour = await _settingsStore.loadDynamicColour();
     _twitterAccount = await _twitterSessionStore.load();
     _saved = await _savedStore.load();
+    _redditClientId = await _redditCredentials.loadClientId();
     _initialized = true;
     notifyListeners();
     if (_sources.isNotEmpty) await refresh();
@@ -381,6 +421,7 @@ class AppState extends ChangeNotifier {
     _items = result.items;
     _errors = result.errors;
     _cursors = result.cursors;
+    _staleSourceIds = result.staleSourceIds;
     _fromCache = false;
     _loading = false;
     notifyListeners();

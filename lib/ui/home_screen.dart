@@ -174,7 +174,33 @@ class _FeedState extends State<_Feed> {
       child: Column(
         children: [
           if (state.loading) const LinearProgressIndicator(minHeight: 2),
-          if (state.errors.isNotEmpty)
+          // A source that failed but still has posts on screen is a
+          // different situation from one that has nothing to show, and
+          // saying so avoids implying the feed is broken when it isn't.
+          if (state.staleSourceNames.isNotEmpty)
+            Container(
+              width: double.infinity,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.cloud_off,
+                      size: 15, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${state.staleSourceNames.join(', ')} '
+                      '${state.staleSourceNames.length == 1 ? "didn't" : "didn't"} '
+                      'refresh — showing their last posts.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (state.errors.isNotEmpty && state.staleSourceNames.isEmpty)
             MaterialBanner(
               content: Text(
                 state.errors.join('\n'),

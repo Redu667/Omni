@@ -2,7 +2,10 @@ import 'package:http/http.dart' as http;
 
 import '../models/feed_item.dart';
 import '../models/feed_source.dart';
+import 'reddit_auth.dart';
+import 'resilient_client.dart';
 import 'source_client.dart';
+import 'source_health.dart';
 import 'twitter_guest_config.dart';
 import 'twitter_guest_session.dart';
 import 'twitter_session_store.dart';
@@ -12,6 +15,7 @@ class FeedResult {
     required this.items,
     required this.errors,
     this.cursors = const {},
+    this.staleSourceIds = const {},
   });
 
   final List<FeedItem> items;
@@ -23,16 +27,37 @@ class FeedResult {
   /// this map has nothing older to offer.
   final Map<String, String> cursors;
 
+  /// Sources whose posts in [items] came from the last successful fetch
+  /// rather than this one — they failed, but their content is still shown.
+  final Set<String> staleSourceIds;
+
   bool get hasMore => cursors.isNotEmpty;
 }
 
 /// Fans out to every enabled source in parallel and merges the results
 /// into one reverse-chronological timeline.
 class FeedRepository {
-  FeedRepository({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+  FeedRepository({http.Client? httpClient, RedditAuth? redditAuth})
+      : _http = httpClient ?? ResilientClient(),
+        _redditAuth = redditAuth;
 
   final http.Client _http;
+
+  /// Null means Reddit is read anonymously. Injected rather than created
+  /// here so tests never reach for platform storage.
+  final RedditAuth? _redditAuth;
+
+  /// The most recent successful page from each source. A source that starts
+  /// failing keeps showing these rather than disappearing from the
+  /// timeline, which is what used to happen on a single 403.
+  final _lastGood = <String, List<FeedItem>>{};
+
+  final _health = <String, SourceHealth>{};
+
+  SourceHealth healthOf(String sourceId) =>
+      _health[sourceId] ?? const SourceHealth();
+
+  Map<String, SourceHealth> get health => Map.unmodifiable(_health);
 
   /// Shared across refreshes so one anonymous X session serves every
   /// Twitter source instead of activating a token per account.
@@ -54,6 +79,7 @@ class FeedRepository {
       twitterConfig: twitterConfig,
       twitterSession: _twitterSession,
       twitterAccount: twitterAccount,
+      redditAuth: _redditAuth,
     ).fetchThread(item);
   }
 
@@ -93,6 +119,7 @@ class FeedRepository {
       twitterConfig: twitterConfig,
       twitterSession: _twitterSession,
       twitterAccount: twitterAccount,
+      redditAuth: _redditAuth,
     );
   }
 
@@ -114,6 +141,8 @@ class FeedRepository {
 
     final errors = <String>[];
     final nextCursors = <String, String>{};
+    final stale = <String>{};
+    final now = DateTime.now();
 
     final results = await Future.wait(enabled.map((source) async {
       try {
@@ -123,16 +152,30 @@ class FeedRepository {
           twitterConfig: twitterConfig,
           twitterSession: _twitterSession,
           twitterAccount: twitterAccount,
+          redditAuth: _redditAuth,
         ).fetchPage(limit: limitPerSource, cursor: cursors?[source.id]);
 
         if (page.nextCursor != null && page.items.isNotEmpty) {
           nextCursors[source.id] = page.nextCursor!;
         }
+        _health[source.id] = healthOf(source.id).succeeded(now);
+        if (!loadingMore) _lastGood[source.id] = page.items;
         return page.items;
       } on SourceFetchException catch (e) {
         errors.add(e.toString());
+        _health[source.id] = healthOf(source.id).failed(e.message);
       } catch (e) {
         errors.add('${source.displayName}: ${e.toString()}');
+        _health[source.id] = healthOf(source.id).failed(e.toString());
+      }
+
+      // Show what this source last gave us rather than dropping it out of
+      // the timeline entirely. Paging is exempt: repeating the previous
+      // page as "older posts" would just duplicate them.
+      final previous = loadingMore ? null : _lastGood[source.id];
+      if (previous != null && previous.isNotEmpty) {
+        stale.add(source.id);
+        return previous;
       }
       return const <FeedItem>[];
     }));
@@ -144,7 +187,12 @@ class FeedRepository {
           if (seen.add(item.id)) item,
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    return FeedResult(items: merged, errors: errors, cursors: nextCursors);
+    return FeedResult(
+      items: merged,
+      errors: errors,
+      cursors: nextCursors,
+      staleSourceIds: stale,
+    );
   }
 
   void dispose() => _http.close();

@@ -49,8 +49,12 @@ Moshidon, but spanning multiple networks.
   silently.
 - **Multiple sources per network** — several subreddits, several feeds,
   several accounts; toggle each on/off or remove it.
-- **Graceful partial failure** — if one source is down you still get the rest,
-  with an inline warning.
+- **Graceful partial failure** — a source that fails keeps its last posts in
+  the timeline rather than vanishing, and says so. Transient failures retry
+  with backoff; rate limits are honoured rather than hammered.
+- **Reddit without the 403s** — an optional app ID authenticates requests,
+  which Reddit doesn't block, restoring scores and comment counts that its
+  Atom fallback can't carry.
 - **Material 3 with Material You** — takes its palette from your wallpaper on
   Android 12+, with a light/dark/system override and a switch back to Omni's
   own colours.

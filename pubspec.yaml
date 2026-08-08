@@ -2,7 +2,7 @@ name: omni
 description: "Omni — a unified multi-platform social feed: Mastodon, Bluesky, Reddit, Twitter/X and RSS in one timeline."
 publish_to: 'none'
 
-version: 0.8.1+10
+version: 0.9.0+11
 
 environment:
   sdk: ^3.8.1

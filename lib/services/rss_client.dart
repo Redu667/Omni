@@ -9,6 +9,14 @@ import 'source_client.dart';
 class RssClient extends SourceClient {
   const RssClient(super.source, super.httpClient);
 
+  /// Validators from the last fetch of each feed, so a refresh can ask
+  /// "has this changed?" rather than re-downloading it. Cheap for us and
+  /// polite to publishers, who are the ones paying for the bandwidth.
+  static final _validators = <String, ({String? etag, String? lastModified})>{};
+
+  /// Items from the last successful fetch, returned unchanged on a 304.
+  static final _lastItems = <String, List<FeedItem>>{};
+
   /// Feeds publish a fixed window of recent entries with no way to ask for
   /// older ones, so every page is the last one.
   @override
@@ -21,13 +29,29 @@ class RssClient extends SourceClient {
     final url = source.params['url']!;
     final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
 
+    final cached = _validators[source.id];
     final res = await httpClient.get(uri, headers: {
-      'User-Agent': 'Omni/0.1 (+feed reader)',
+      'User-Agent': 'Omni/1.0 (+feed reader)',
       'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+      if (cached?.etag != null) 'If-None-Match': cached!.etag!,
+      if (cached?.lastModified != null)
+        'If-Modified-Since': cached!.lastModified!,
     });
+
+    // Unchanged since last time — reuse what we already parsed.
+    if (res.statusCode == 304) {
+      return _lastItems[source.id] ?? const [];
+    }
+
     if (res.statusCode != 200) {
       throw SourceFetchException(
           source.displayName, 'HTTP ${res.statusCode} from ${uri.host}');
+    }
+
+    final etag = res.headers['etag'];
+    final lastModified = res.headers['last-modified'];
+    if (etag != null || lastModified != null) {
+      _validators[source.id] = (etag: etag, lastModified: lastModified);
     }
 
     final XmlDocument doc;
@@ -38,10 +62,14 @@ class RssClient extends SourceClient {
     }
 
     final channel = doc.findAllElements('channel').firstOrNull;
-    if (channel != null) return _parseRss(channel, limit);
+    if (channel != null) {
+      return _lastItems[source.id] = _parseRss(channel, limit);
+    }
 
     final atomFeed = doc.findAllElements('feed').firstOrNull;
-    if (atomFeed != null) return _parseAtom(atomFeed, limit);
+    if (atomFeed != null) {
+      return _lastItems[source.id] = _parseAtom(atomFeed, limit);
+    }
 
     throw SourceFetchException(source.displayName, 'unrecognized feed format');
   }

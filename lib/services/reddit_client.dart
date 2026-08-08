@@ -6,18 +6,24 @@ import 'package:xml/xml.dart';
 import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../util/text.dart';
+import 'reddit_auth.dart';
 import 'source_client.dart';
 
 /// Reddit via the public JSON listing API (no account needed).
 ///
 /// `subreddit` may combine several with '+', e.g. "flutter+androiddev".
 class RedditClient extends SourceClient {
-  const RedditClient(super.source, super.httpClient);
+  RedditClient(super.source, super.httpClient, {this.auth});
+
+  /// When configured, requests go to oauth.reddit.com with a bearer token,
+  /// which is not subject to the blocking anonymous callers get.
+  final RedditAuth? auth;
 
   /// Reddit turns away clients that don't look like a browser, so present as
   /// one. old.reddit.com serves the same JSON and is markedly less
   /// aggressive about blocking, which is why it's tried as a fallback.
   static const _hosts = ['www.reddit.com', 'old.reddit.com'];
+  static const _oauthHost = 'oauth.reddit.com';
 
   static const _headers = {
     'User-Agent':
@@ -27,10 +33,49 @@ class RedditClient extends SourceClient {
     'Accept-Language': 'en-US,en;q=0.9',
   };
 
+  /// Adds the bearer token when one is available. Returns null when Reddit
+  /// isn't configured, so callers know to use the anonymous hosts.
+  Future<Map<String, String>?> _authHeaders() async {
+    if (auth == null) return null;
+    try {
+      final token = await auth!.token();
+      if (token == null) return null;
+      return {
+        ..._headers,
+        'Authorization': 'Bearer $token',
+        'User-Agent': RedditAuth.userAgent,
+      };
+    } on RedditAuthException {
+      // A bad client id shouldn't break the source; fall back to anonymous
+      // and let the usual blocked-path handling take over.
+      return null;
+    }
+  }
+
   @override
   Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
     final subreddit = source.params['subreddit']!.replaceAll(RegExp(r'^/?r/'), '');
     final sort = source.params['sort'] ?? 'hot';
+
+    // Authenticated first: it isn't blocked, and it carries the full
+    // listing rather than the Atom feed's reduced fields.
+    final authHeaders = await _authHeaders();
+    if (authHeaders != null) {
+      final res = await httpClient.get(
+        Uri.https(_oauthHost, '/r/$subreddit/$sort', {
+          'limit': '$limit',
+          'raw_json': '1',
+          if (cursor != null) 'after': cursor,
+        }),
+        headers: authHeaders,
+      );
+      if (res.statusCode == 200) {
+        final parsed = _tryParse(res);
+        if (parsed != null) return parsed;
+      }
+      if (res.statusCode == 401) auth?.invalidate();
+      // Anything else falls through to the anonymous path below.
+    }
 
     // Why we gave up, kept so the final message says "rate limited" rather
     // than "private or quarantined" when those are very different problems.

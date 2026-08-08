@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../models/feed_source.dart';
 import '../models/network.dart';
 import 'feed_discovery.dart';
+import 'reddit_auth.dart';
 import 'source_client.dart';
 import 'twitter_guest_config.dart';
 import 'twitter_session_store.dart';
@@ -10,10 +11,12 @@ import 'twitter_session_store.dart';
 /// Test-fetches a source before it's saved, so misconfiguration fails at
 /// add time with a clear message instead of silently later.
 class SourceValidator {
-  SourceValidator({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+  SourceValidator({http.Client? httpClient, RedditAuth? redditAuth})
+      : _http = httpClient ?? http.Client(),
+        _redditAuth = redditAuth;
 
   final http.Client _http;
+  final RedditAuth? _redditAuth;
 
   /// Returns the source (possibly fixed up — e.g. an RSS source whose URL
   /// pointed at an HTML page gets swapped for the page's advertised feed).
@@ -25,7 +28,9 @@ class SourceValidator {
   }) async {
     try {
       await SourceClient.forSource(source, _http,
-              twitterConfig: twitterConfig, twitterAccount: twitterAccount)
+              twitterConfig: twitterConfig,
+              twitterAccount: twitterAccount,
+              redditAuth: _redditAuth)
           .fetchLatest(limit: 5);
       return source;
     } on SourceFetchException {
