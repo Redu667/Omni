@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
+import '../services/thread_folding.dart';
 import '../state/app_state.dart';
 import 'image_viewer_screen.dart';
 import 'post_actions.dart';
@@ -37,6 +38,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   String? _sort;
   final _expanding = <MoreReplies>{};
+
+  /// Comments whose replies are folded away, by id.
+  final _collapsed = <String>{};
 
   @override
   void initState() {
@@ -166,7 +170,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final theme = Theme.of(context);
     final thread = _thread ?? PostThread.empty;
     final ancestors = thread.ancestors;
-    final replies = _replies;
+    final replies = foldThread(_replies, _collapsed);
     final sorts = context.read<AppState>().commentSorts(item);
     final rootMore = _rootMore;
 
@@ -238,7 +242,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 onPressed: () => _loadMore(rootMore),
               );
             }
-            final entry = replies[offset - 2];
+            final row = replies[offset - 2];
+            final entry = row.entry;
             return _ReplyTile(
               entry: entry,
               theme: theme,
@@ -246,6 +251,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               onLoadMore: entry.more == null
                   ? null
                   : () => _loadMore(entry.more!, under: entry),
+              hiddenReplies: row.hidden,
+              collapsed: _collapsed.contains(entry.item.id),
+              onToggleCollapse: () => setState(() {
+                if (!_collapsed.remove(entry.item.id)) {
+                  _collapsed.add(entry.item.id);
+                }
+              }),
             );
           },
         ),
@@ -683,6 +695,9 @@ class _ReplyTile extends StatelessWidget {
     required this.theme,
     this.expanding = false,
     this.onLoadMore,
+    this.hiddenReplies = 0,
+    this.collapsed = false,
+    this.onToggleCollapse,
   });
 
   final ThreadEntry entry;
@@ -691,6 +706,12 @@ class _ReplyTile extends StatelessWidget {
   /// Null unless this comment has replies the network held back.
   final VoidCallback? onLoadMore;
   final bool expanding;
+
+  /// How many replies this comment is currently folding away. Zero when
+  /// open, and also when a comment with no replies is folded.
+  final int hiddenReplies;
+  final bool collapsed;
+  final VoidCallback? onToggleCollapse;
 
   /// Indentation stops growing past a few levels so deep chains stay readable
   /// on a phone.
@@ -717,26 +738,60 @@ class _ReplyTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  item.handle ?? item.author,
-                  style: theme.textTheme.labelLarge,
-                  overflow: TextOverflow.ellipsis,
+          // The header is the fold handle: the body can't be, because
+          // selecting text there would fold the comment out from under you.
+          InkWell(
+            onTap: onToggleCollapse,
+            child: Row(
+              children: [
+                if (onToggleCollapse != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(
+                      collapsed ? Icons.chevron_right : Icons.expand_more,
+                      size: 16,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                Flexible(
+                  child: Text(
+                    item.handle ?? item.author,
+                    style: theme.textTheme.labelLarge,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-              Text(
-                timeago.format(item.createdAt, locale: 'en_short'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
+                if (hiddenReplies > 0) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    '+$hiddenReplies',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                Text(
+                  timeago.format(item.createdAt, locale: 'en_short'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 4),
-          SelectableText(item.text, style: theme.textTheme.bodyMedium),
-          if (item.likes != null)
+          if (collapsed)
+            Text(
+              item.text,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.outline),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            )
+          else
+            SelectableText(item.text, style: theme.textTheme.bodyMedium),
+          if (item.likes != null && !collapsed)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Row(
@@ -756,7 +811,7 @@ class _ReplyTile extends StatelessWidget {
                 ],
               ),
             ),
-          if (entry.more != null && onLoadMore != null)
+          if (entry.more != null && onLoadMore != null && !collapsed)
             _LoadMoreButton(
               more: entry.more!,
               loading: expanding,

@@ -106,7 +106,7 @@ Closest comparison: Infinity, RedReader, Boost.
 | Comments with nesting | ✓ | |
 | **Time filter for `top`** | ✓ | Hour through all-time, offered only for `top` and `controversial` — Reddit ignores it elsewhere. |
 | **Comment sort** | ✓ | Best, top, new, old, controversial and Q&A, chosen from the thread itself. |
-| **Collapse comment threads** | ✗ | Long chains can't be folded, which makes big threads unreadable on a phone. |
+| **Collapse comment threads** | ✓ | Tap a comment's header to fold it and everything under it, with a count of what's hidden. The body isn't the handle — selecting text there would fold the comment out from under you. |
 | **Load more comments** | ✓ | "N more replies" loads in place, at the right indentation, both at the top level and under a specific comment. Reddit's 100-per-request cap is handled by leaving the remainder behind the next button. "Continue this thread" stubs, which carry nothing to request, aren't offered. |
 | **Galleries** | ✓ | Every image of a gallery is carried, with captions as alt text. |
 | **Video** | ✗ | `v.redd.it` unsupported. |
@@ -165,8 +165,7 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 Ordered by value-per-effort rather than by how impressive they sound.
 
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
-2. **Collapse comment threads** — now that threads load fully, folding them matters more.
-3. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
-4. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
-5. **Video playback** — big lift, touches every network.
-6. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
+2. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
+3. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
+4. **Video playback** — big lift, touches every network.
+5. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
