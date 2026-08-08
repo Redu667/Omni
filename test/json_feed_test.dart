@@ -26,6 +26,7 @@ Future<List<FeedItem>> fetch(String body) => SourceClient.forSource(
     ).fetchLatest();
 
 void main() {
+  _iconTests();
   group('JSON Feed', () {
     test('reads title, body, link, author and date', () async {
       final items = await fetch(jsonEncode({
@@ -214,6 +215,68 @@ void main() {
       expect(parseDurationSeconds(''), isNull);
       expect(parseDurationSeconds('soon'), isNull);
       expect(parseDurationSeconds('1:xx'), isNull);
+    });
+  });
+}
+
+/// A feed needs something to tell it apart from the others in a mixed
+/// timeline; the card shows [FeedItem.avatarUrl].
+void _iconTests() {
+  group('per-feed icon', () {
+    test('uses the channel image an RSS feed declares', () async {
+      final items = await fetch('''<?xml version="1.0"?>
+<rss version="2.0"><channel>
+  <title>A Blog</title>
+  <image><url>https://example.com/logo.png</url></image>
+  <item><title>Post</title><link>https://example.com/a</link></item>
+</channel></rss>''');
+
+      expect(items.single.avatarUrl, 'https://example.com/logo.png');
+    });
+
+    test("falls back to the site's favicon when a feed declares none",
+        () async {
+      final items = await fetch('''<?xml version="1.0"?>
+<rss version="2.0"><channel>
+  <title>A Blog</title>
+  <item><title>Post</title><link>https://example.com/a</link></item>
+</channel></rss>''');
+
+      expect(items.single.avatarUrl, 'https://example.com/favicon.ico');
+    });
+
+    test('reads an Atom feed icon', () async {
+      final items = await fetch('''<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>An Atom Blog</title>
+  <icon>https://example.com/icon.png</icon>
+  <entry><title>Post</title><id>1</id></entry>
+</feed>''');
+
+      expect(items.single.avatarUrl, 'https://example.com/icon.png');
+    });
+
+    test('reads a JSON Feed icon', () async {
+      final items = await fetch(jsonEncode({
+        'title': 'A Blog',
+        'icon': 'https://example.com/big.png',
+        'items': [
+          {'id': '1', 'content_text': 'x'},
+        ],
+      }));
+
+      expect(items.single.avatarUrl, 'https://example.com/big.png');
+    });
+
+    test('a relative icon is ignored in favour of the favicon', () async {
+      final items = await fetch('''<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>A Blog</title>
+  <icon>/icon.png</icon>
+  <entry><title>Post</title><id>1</id></entry>
+</feed>''');
+
+      expect(items.single.avatarUrl, 'https://example.com/favicon.ico');
     });
   });
 }

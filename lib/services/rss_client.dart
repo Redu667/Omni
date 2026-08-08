@@ -93,6 +93,7 @@ class RssClient extends SourceClient {
     final channelImage =
         channel.getElement('itunes:image')?.getAttribute('href') ??
             channel.getElement('image')?.getElement('url')?.innerText.trim();
+    final icon = _feedIcon(channelImage);
 
     return channel.findElements('item').take(limit).map((item) {
       String text(String tag) => item.getElement(tag)?.innerText.trim() ?? '';
@@ -135,6 +136,7 @@ class RssClient extends SourceClient {
         sourceId: source.id,
         network: Network.rss,
         author: text('dc:creator').isNotEmpty ? text('dc:creator') : feedTitle,
+        avatarUrl: icon,
         title: htmlToPlainText(text('title')),
         text: description.length > 500
             ? '${description.substring(0, 500)}…'
@@ -151,6 +153,8 @@ class RssClient extends SourceClient {
   List<FeedItem> _parseAtom(XmlElement feed, int limit) {
     final feedTitle =
         feed.getElement('title')?.innerText.trim() ?? source.displayName;
+    final icon = _feedIcon(feed.getElement('icon')?.innerText.trim() ??
+        feed.getElement('logo')?.innerText.trim());
 
     return feed.findElements('entry').take(limit).map((entry) {
       String text(String tag) => entry.getElement(tag)?.innerText.trim() ?? '';
@@ -179,6 +183,7 @@ class RssClient extends SourceClient {
         sourceId: source.id,
         network: Network.rss,
         author: author,
+        avatarUrl: icon,
         title: htmlToPlainText(text('title')),
         text: summary.length > 500 ? '${summary.substring(0, 500)}…' : summary,
         fullText: summary.length > 500 ? summary : null,
@@ -189,6 +194,22 @@ class RssClient extends SourceClient {
             DateTime.now().toUtc(),
       );
     }).toList(growable: false);
+  }
+
+  /// A small image to stand for this feed in a mixed timeline.
+  ///
+  /// Feeds that declare one get theirs; the rest fall back to the site's
+  /// favicon, which nearly every site has and which is enough to tell two
+  /// feeds apart at a glance.
+  String? _feedIcon(String? declared) {
+    if (declared != null && declared.startsWith('http')) return declared;
+
+    final url = source.params['url'] ?? '';
+    final host =
+        Uri.tryParse(url.startsWith('http') ? url : 'https://$url')?.host;
+    return host == null || host.isEmpty
+        ? null
+        : 'https://$host/favicon.ico';
   }
 
   /// Turns one enclosure into media, or null when it's something Omni has
@@ -257,6 +278,7 @@ class RssClient extends SourceClient {
             sourceId: source.id,
             network: Network.rss,
             author: author ?? feedTitle,
+            avatarUrl: _feedIcon(feedIcon),
             title: raw['title'] as String?,
             text: summary.length > 500
                 ? '${summary.substring(0, 500)}…'

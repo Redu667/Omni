@@ -154,7 +154,7 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 | **Folders / categories** | ◐ | Collections group feeds (and everything else) across networks. OPML folder structure is still discarded on import. |
 | **Unread counts per feed** | ✗ | |
 | **Podcast enclosures** | ◐ | Audio enclosures play, with the episode's own art or the show's standing in for a picture, and `itunes:duration` read in either `HH:MM:SS` or plain seconds. No queue, no playback position, no background audio. |
-| **Per-feed favicon** | ✗ | All feeds share one generic icon, making a mixed timeline harder to scan. |
+| **Per-feed favicon** | ✓ | The image a feed declares (`channel/image`, `itunes:image`, Atom `icon`/`logo`, JSON Feed `icon`), falling back to the site's favicon. Relative paths are ignored in favour of the favicon rather than resolved against the wrong base. |
 | **Conditional requests** | ✓ | `ETag`/`If-Modified-Since` sent, with a 304 reusing already-parsed items. |
 | **JSON Feed** | ✓ | Detected by the body rather than the content type, since publishers serve it under several. Attachments become media by MIME type; anything Omni can't present, like a PDF, is skipped rather than shown as a broken image. |
 
@@ -168,4 +168,4 @@ Ordered by value-per-effort rather than by how impressive they sound.
 2. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
 3. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
 4. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
-5. **Per-feed favicon** — a mixed timeline is harder to scan than it needs to be.
+5. **Mastodon server-side filters** — the instance's own keyword filters are ignored.
