@@ -36,7 +36,7 @@ whether Omni is usable as a daily reader at all.
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
 | **Search** | ✓ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip; press enter to ask Mastodon, Bluesky and Reddit for posts you haven't loaded. RSS has no search API and X's would be another rotating query ID, so neither is offered. |
-| **Image viewer** | ◐ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture. Not yet: saving to the device. |
+| **Image viewer** | ✓ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture, and save to the device gallery — video too, where the network serves a file rather than a stream. |
 | **Video** | ✓ | Plays in-app on all four networks that have it — Mastodon video and `gifv`, Bluesky's HLS embeds, Reddit `v.redd.it`, and X video and animated GIFs. Timeline shows the poster frame with a play badge and the running time; GIFs loop silently, everything else plays once with sound. |
 | **Alt text** | ✓ | Carried from Mastodon, Bluesky and X for images and video alike, shown under each image in the detail view and under a playing video, exposed to screen readers, and flagged with an ALT badge in the timeline. |
 | **Link preview cards** | ✓ | Mastodon cards, Bluesky external embeds and Reddit outbound links render as tappable cards. |
@@ -169,5 +169,5 @@ Ordered by value-per-effort rather than by how impressive they sound.
 
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
 2. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Needs a decision about which copy to keep: the subreddit has the discussion, the feed has the full text.
-3. **Saving an image to the device** — the image viewer can show one but not keep it.
+3. **Saving streamed video** — HLS and DASH are manifests, not files; keeping one means muxing the segments, which is a lot of machinery for a rare want.
 4. **Per-source refresh interval** — everything refreshes together, on demand only. Only worth having alongside background refresh, and probably not even then.

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
+import 'media_actions.dart';
 import 'video_player_screen.dart';
 
 /// Full-screen images: pinch to zoom, drag to pan, swipe between them.
@@ -67,6 +68,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           style: const TextStyle(fontSize: 15),
         ),
         actions: [
+          SaveMediaButton(media: current),
           IconButton(
             icon: const Icon(Icons.open_in_browser),
             tooltip: 'Open in browser',
