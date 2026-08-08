@@ -38,10 +38,10 @@ whether Omni is usable as a daily reader at all.
 | **Search** | ◐ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip. Not yet: querying each network's own search API for posts you haven't loaded. |
 | **Image viewer** | ◐ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture. Not yet: saving to the device. |
 | **Video** | ✓ | Plays in-app on all four networks that have it — Mastodon video and `gifv`, Bluesky's HLS embeds, Reddit `v.redd.it`, and X video and animated GIFs. Timeline shows the poster frame with a play badge and the running time; GIFs loop silently, everything else plays once with sound. |
-| **Alt text** | ✓ | Carried from Mastodon, Bluesky and X, shown under each image in the detail view, exposed to screen readers, and flagged with an ALT badge in the timeline. |
+| **Alt text** | ✓ | Carried from Mastodon, Bluesky and X for images and video alike, shown under each image in the detail view and under a playing video, exposed to screen readers, and flagged with an ALT badge in the timeline. |
 | **Link preview cards** | ✓ | Mastodon cards, Bluesky external embeds and Reddit outbound links render as tappable cards. |
 | **Share sheet** | ✓ | Long-press a post to hand its link to Android's share sheet, or copy it. |
-| **Content warnings** | ✓ | Mastodon spoilers and Reddit `over_18` hide the body behind a reveal. |
+| **Content warnings** | ✓ | Mastodon spoilers, Bluesky's adult and graphic-media labels, Reddit `over_18`, and the reader's own instance filters all hide the body behind a reveal — or drop the post outright, where the filter says hide. |
 | **Mute filters** | ◐ | Words and accounts work. No regex, no per-source scoping, no time-limited mutes, no muting by hashtag or domain. |
 | **Display settings** | ◐ | Material You wallpaper colours plus a light/dark/system override. No text size, density, or compact layout. |
 | **Per-source refresh interval** | ✗ | Everything refreshes together, on demand only. |
