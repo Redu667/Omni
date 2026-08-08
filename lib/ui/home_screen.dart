@@ -268,7 +268,29 @@ class _FeedState extends State<_Feed> {
                 ],
               ),
             ),
-          if (state.errors.isNotEmpty && state.staleSourceNames.isEmpty)
+          if (state.offline)
+            Container(
+              width: double.infinity,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.signal_wifi_off,
+                      size: 15, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      // One fact, rather than the same error five times.
+                      'No connection — showing what you already had.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (state.errors.isNotEmpty &&
+              state.staleSourceNames.isEmpty &&
+              !state.offline)
             MaterialBanner(
               content: Text(
                 state.errors.join('\n'),

@@ -21,7 +21,7 @@ How Omni behaves when a service says no, which on Reddit and X is often.
 | **Reddit authentication** | ✓ | An optional app ID makes requests authenticated, which is the actual fix for its 403s rather than the Atom fallback's damage limitation. |
 | **Conditional requests** | ◐ | RSS sends `If-None-Match`/`If-Modified-Since` and reuses parsed items on a 304. Not yet applied to the JSON APIs. |
 | **Per-source retry scheduling** | ✓ | A source that keeps refusing is left alone for a while — two minutes, then five, fifteen, thirty — rather than being asked on every refresh. Hammering a 403 is how a temporary block becomes a lasting one. The first two failures cost nothing, the delay is capped so a source is never abandoned, and pull-to-refresh or Retry overrides it. |
-| **Offline detection** | ✗ | No connectivity awareness; a refresh with no signal fails per-source rather than being skipped. |
+| **Offline detection** | ✓ | A dropped connection is told apart from a service refusing, by the failure itself rather than by asking the platform — a phone on wifi with no route out is still offline. It doesn't count against any source's retry backoff, and shows as one "no connection" line instead of the same error once per source. |
 
 ## Cross-cutting — affects every source
 
@@ -170,5 +170,5 @@ Ordered by value-per-effort rather than by how impressive they sound.
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
 2. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Needs a decision about which copy to keep: the subreddit has the discussion, the feed has the full text.
 3. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
-4. **Offline detection** — with no signal, every source fails separately instead of the refresh being skipped.
-5. **Saving an image to the device** — the image viewer can show one but not keep it.
+4. **Saving an image to the device** — the image viewer can show one but not keep it.
+5. **Per-source refresh interval** — everything refreshes together, on demand only.

@@ -1,3 +1,23 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+
+/// Whether a failure is the network being unreachable rather than the
+/// service refusing.
+///
+/// The difference decides whether it counts against a source: a subway ride
+/// shouldn't put every source into a half-hour backoff, and Reddit isn't
+/// blocking anyone when the phone has no signal.
+bool isConnectivityFailure(Object error) =>
+    error is SocketException ||
+    error is TimeoutException ||
+    // http throws this for a connection that never opened, among other
+    // things — its message is the only distinguishing detail available.
+    (error is http.ClientException &&
+        const ['Connection closed', 'Connection refused', 'Failed host lookup']
+            .any((m) => error.message.contains(m)));
+
 /// How a source is faring, so the UI can distinguish "this broke just now"
 /// from "this has been broken for a week".
 class SourceHealth {

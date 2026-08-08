@@ -127,6 +127,11 @@ class AppState extends ChangeNotifier {
   bool _fromCache = false;
   bool get showingCached => _fromCache;
 
+  /// The last refresh couldn't reach anything at all. Distinguished from
+  /// per-source errors because "no connection" is one fact, not five.
+  bool _offline = false;
+  bool get offline => _offline;
+
   List<FeedItem> _saved = [];
 
   /// Posts the user kept, newest save first.
@@ -469,8 +474,14 @@ class AppState extends ChangeNotifier {
         twitterConfig: _twitterConfig,
         twitterAccount: _twitterAccount,
         force: force);
-    // A refresh that failed everywhere shouldn't wipe a usable cache.
-    if (result.items.isEmpty && result.errors.isNotEmpty && _items.isNotEmpty) {
+
+    // A refresh that failed everywhere shouldn't wipe a usable cache —
+    // including when the failure was having no connection, which produces
+    // no per-source errors to check for.
+    _offline = result.offline;
+    if (result.items.isEmpty &&
+        (result.errors.isNotEmpty || result.offline) &&
+        _items.isNotEmpty) {
       _errors = result.errors;
       _loading = false;
       notifyListeners();

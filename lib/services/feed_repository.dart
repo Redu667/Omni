@@ -17,6 +17,7 @@ class FeedResult {
     required this.errors,
     this.cursors = const {},
     this.staleSourceIds = const {},
+    this.offline = false,
   });
 
   final List<FeedItem> items;
@@ -31,6 +32,10 @@ class FeedResult {
   /// Sources whose posts in [items] came from the last successful fetch
   /// rather than this one — they failed, but their content is still shown.
   final Set<String> staleSourceIds;
+
+  /// Every source that was asked was unreachable, which says the connection
+  /// is down rather than that five services failed at once.
+  final bool offline;
 
   bool get hasMore => cursors.isNotEmpty;
 }
@@ -219,6 +224,9 @@ class FeedRepository {
     final nextCursors = <String, String>{};
     final stale = <String>{};
     final now = DateTime.now();
+    // Sources whose failure was the phone having no connection rather than
+    // the service saying no.
+    final unreachable = <String>{};
 
     final results = await Future.wait(enabled.map((source) async {
       // A source that just refused isn't asked again straight away.
@@ -250,12 +258,18 @@ class FeedRepository {
         _health[source.id] = healthOf(source.id).succeeded(now);
         if (!loadingMore) _lastGood[source.id] = page.items;
         return page.items;
-      } on SourceFetchException catch (e) {
-        errors.add(e.toString());
-        _health[source.id] = healthOf(source.id).failed(e.message, now);
       } catch (e) {
-        errors.add('${source.displayName}: ${e.toString()}');
-        _health[source.id] = healthOf(source.id).failed(e.toString(), now);
+        // Being offline isn't the source's fault, and counting it as one
+        // would push every source into a long backoff over a tunnel.
+        if (isConnectivityFailure(e)) {
+          unreachable.add(source.id);
+        } else if (e is SourceFetchException) {
+          errors.add(e.toString());
+          _health[source.id] = healthOf(source.id).failed(e.message, now);
+        } else {
+          errors.add('${source.displayName}: ${e.toString()}');
+          _health[source.id] = healthOf(source.id).failed(e.toString(), now);
+        }
       }
 
       // Show what this source last gave us rather than dropping it out of
@@ -281,6 +295,12 @@ class FeedRepository {
       errors: errors,
       cursors: nextCursors,
       staleSourceIds: stale,
+      // Every source that was actually asked came back unreachable, which
+      // means the connection, not five simultaneous outages.
+      offline: unreachable.isNotEmpty && errors.isEmpty && nextCursors.isEmpty
+          ? unreachable.length ==
+              enabled.where((s) => healthOf(s.id).shouldFetchAt(now, force: force)).length
+          : false,
     );
   }
 
