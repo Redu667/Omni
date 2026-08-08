@@ -98,6 +98,10 @@ class MastodonClient extends SourceClient {
       text: htmlToPlainText(s['content'] as String? ?? ''),
       url: (s['url'] ?? s['uri']) as String?,
       nativeId: s['id'] as String?,
+      contentWarning: (s['spoiler_text'] as String?)?.trim().isNotEmpty == true
+          ? (s['spoiler_text'] as String).trim()
+          : null,
+      sensitive: s['sensitive'] as bool? ?? false,
       imageUrls: [
         for (final m in media)
           if (m['type'] == 'image' && m['preview_url'] != null)

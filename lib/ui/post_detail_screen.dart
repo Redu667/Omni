@@ -146,15 +146,24 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 }
 
-class _PostBody extends StatelessWidget {
+class _PostBody extends StatefulWidget {
   const _PostBody({required this.item, required this.onOpenOriginal});
 
   final FeedItem item;
   final VoidCallback onOpenOriginal;
 
   @override
+  State<_PostBody> createState() => _PostBodyState();
+}
+
+class _PostBodyState extends State<_PostBody> {
+  bool _revealed = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final item = widget.item;
+    final hidden = item.needsReveal && !_revealed;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -214,7 +223,43 @@ class _PostBody extends StatelessWidget {
                   style: theme.textTheme.headlineSmall
                       ?.copyWith(fontWeight: FontWeight.w600)),
             ),
-          if (item.body.isNotEmpty)
+          if (hidden)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.visibility_off_outlined,
+                            size: 18, color: theme.colorScheme.outline),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            item.contentWarning ?? 'Marked sensitive',
+                            style: theme.textTheme.bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.tonal(
+                      onPressed: () => setState(() => _revealed = true),
+                      child: const Text('Show anyway'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (item.body.isNotEmpty && !hidden)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: SelectableText(
@@ -222,7 +267,7 @@ class _PostBody extends StatelessWidget {
                 style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
               ),
             ),
-          if (item.imageUrls.isNotEmpty)
+          if (item.imageUrls.isNotEmpty && !hidden)
             Padding(
               padding: const EdgeInsets.only(top: 16),
               child: Column(
@@ -277,7 +322,7 @@ class _PostBody extends StatelessWidget {
                 label: Text(item.network == Network.rss
                     ? 'Read full article'
                     : 'View original'),
-                onPressed: onOpenOriginal,
+                onPressed: widget.onOpenOriginal,
               ),
             ),
         ],

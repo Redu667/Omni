@@ -23,6 +23,9 @@ Moshidon, but spanning multiple networks.
   Bluesky threads). The original page is one tap away, in Omni's browser or
   yours, but you never have to go there to read.
 - **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
+- **Content warnings honoured** — Mastodon spoilers and Reddit's over-18 flag
+  hide a post's body and media behind a reveal rather than showing content the
+  author marked as hidden.
 - **Mute filters** — hide posts by word, phrase or account across every
   source. Single words match on word boundaries (muting "art" won't hide
   "start"); accounts match however you type them, `@name`, `u/name` or bare.
@@ -147,10 +150,12 @@ Every client implements `SourceClient.fetchLatest()` and normalizes its
 network's payload into a shared `FeedItem`, so adding a new network is one
 client class plus an enum entry.
 
-## Roadmap ideas
+## Roadmap
 
-- Full Mastodon/Bluesky OAuth login flows (instead of pasted tokens)
-- Post detail view with reply threads
-- Posting/cross-posting
-- Background refresh and notifications
-- Offline cache of the timeline
+[`docs/FEATURE-AUDIT.md`](docs/FEATURE-AUDIT.md) surveys what dedicated
+clients for each network offer against what Omni does today, per network plus
+the cross-cutting gaps, with a shortlist ordered by value per effort.
+
+The largest gaps as of 0.5.x: no pagination (only the newest ~40 posts per
+source are ever fetched), no offline cache or read state, no image viewer or
+video playback, and no thread parent context.

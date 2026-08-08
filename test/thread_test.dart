@@ -207,6 +207,80 @@ void main() {
     });
   });
 
+  group('content warnings', () {
+    test('a Mastodon spoiler hides the body until revealed', () async {
+      final payload = [
+        {
+          'id': '1',
+          'created_at': '2026-08-06T10:00:00.000Z',
+          'content': '<p>the spoilery part</p>',
+          'spoiler_text': 'Season finale',
+          'sensitive': true,
+          'account': {'display_name': 'A', 'acct': 'a', 'username': 'a'},
+          'media_attachments': [],
+        },
+      ];
+      final client =
+          MockClient((_) async => http.Response(jsonEncode(payload), 200));
+
+      final items = await SourceClient.forSource(
+        src(Network.mastodon, {'instance': 'mastodon.social'}),
+        client,
+      ).fetchLatest();
+
+      expect(items.single.contentWarning, 'Season finale');
+      expect(items.single.sensitive, isTrue);
+      expect(items.single.needsReveal, isTrue);
+      // The text is still carried, just not shown until the user asks.
+      expect(items.single.text, 'the spoilery part');
+    });
+
+    test('sensitive without a warning still needs revealing', () async {
+      final payload = [
+        {
+          'id': '2',
+          'created_at': '2026-08-06T10:00:00.000Z',
+          'content': '<p>no warning text</p>',
+          'spoiler_text': '',
+          'sensitive': true,
+          'account': {'display_name': 'A', 'acct': 'a', 'username': 'a'},
+          'media_attachments': [],
+        },
+      ];
+      final client =
+          MockClient((_) async => http.Response(jsonEncode(payload), 200));
+
+      final items = await SourceClient.forSource(
+        src(Network.mastodon, {'instance': 'mastodon.social'}),
+        client,
+      ).fetchLatest();
+
+      expect(items.single.contentWarning, isNull);
+      expect(items.single.needsReveal, isTrue);
+    });
+
+    test('an ordinary post needs no reveal', () async {
+      final payload = [
+        {
+          'id': '3',
+          'created_at': '2026-08-06T10:00:00.000Z',
+          'content': '<p>just a post</p>',
+          'account': {'display_name': 'A', 'acct': 'a', 'username': 'a'},
+          'media_attachments': [],
+        },
+      ];
+      final client =
+          MockClient((_) async => http.Response(jsonEncode(payload), 200));
+
+      final items = await SourceClient.forSource(
+        src(Network.mastodon, {'instance': 'mastodon.social'}),
+        client,
+      ).fetchLatest();
+
+      expect(items.single.needsReveal, isFalse);
+    });
+  });
+
   group('FeedItem.body', () {
     test('prefers the untruncated text when present', () {
       final item = FeedItem(

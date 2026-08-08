@@ -2,6 +2,11 @@ import 'package:html_unescape/html_unescape.dart';
 
 final _unescape = HtmlUnescape();
 
+/// Turns `&amp;` and friends back into real characters, without stripping
+/// markup. URLs pulled out of escaped HTML need this — Reddit's image URLs
+/// carry `&amp;` in their query strings and 404 if it isn't undone.
+String unescapeHtml(String value) => _unescape.convert(value);
+
 /// Convert a fragment of HTML (Mastodon statuses, RSS descriptions)
 /// into readable plain text.
 String htmlToPlainText(String html) {

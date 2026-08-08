@@ -129,10 +129,26 @@ class RedditClient extends SourceClient {
                   ?.innerText
                   .trim() ??
               '[deleted]';
+          // Reddit puts a real thumbnail here for link posts — the main
+          // reason a link-heavy subreddit has any imagery at all.
+          final thumbnail = entry
+              .findElements('media:thumbnail')
+              .firstOrNull
+              ?.getAttribute('url');
+
           final contentHtml = entry.getElement('content')?.innerText ?? '';
-          final image = RegExp('<img[^>]+src="([^"]+)"', caseSensitive: false)
-              .firstMatch(contentHtml)
-              ?.group(1);
+          final embedded =
+              RegExp('''<img[^>]+src=["']([^"']+)["']''', caseSensitive: false)
+                  .firstMatch(contentHtml)
+                  ?.group(1);
+
+          // Escaped HTML leaves `&amp;` in the query string, which 404s
+          // unless undone. Reddit also uses placeholder values like "self"
+          // and "default" where a post simply has no image.
+          final raw = thumbnail ?? embedded;
+          final image = (raw == null || !raw.startsWith('http'))
+              ? null
+              : unescapeHtml(raw);
 
           return FeedItem(
             id: '${source.id}:${text('id').isNotEmpty ? text('id') : link}',
@@ -291,6 +307,7 @@ class RedditClient extends SourceClient {
       url: 'https://www.reddit.com${post['permalink'] ?? ''}',
       nativeId: post['permalink'] as String?,
       fullText: selftext.isNotEmpty ? selftext : null,
+      sensitive: post['over_18'] as bool? ?? false,
       imageUrls: images,
       likes: post['ups'] as int?,
       replies: post['num_comments'] as int?,
