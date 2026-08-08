@@ -15,9 +15,11 @@ class OmniApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => AppState()..init(),
-      child: MaterialApp(
+      child: Consumer<AppState>(
+        builder: (context, state, _) => MaterialApp(
         title: 'Omni',
         debugShowCheckedModeBanner: false,
+        themeMode: state.themeMode,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6750A4)),
           useMaterial3: true,
@@ -30,6 +32,7 @@ class OmniApp extends StatelessWidget {
           useMaterial3: true,
         ),
         home: const HomeScreen(),
+        ),
       ),
     );
   }

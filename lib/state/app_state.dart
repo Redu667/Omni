@@ -1,10 +1,11 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import '../models/feed_item.dart';
 import '../models/feed_filters.dart';
 import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_repository.dart';
+import '../services/saved_store.dart';
 import '../services/source_store.dart';
 import '../services/settings_store.dart';
 import '../services/source_validator.dart';
@@ -19,12 +20,14 @@ class AppState extends ChangeNotifier {
     TwitterGuestConfigStore? twitterConfigStore,
     SettingsStore? settingsStore,
     TwitterSessionStore? twitterSessionStore,
+    SavedStore? savedStore,
   })  : _repository = repository ?? FeedRepository(),
         _store = store ?? SourceStore(),
         _validator = validator ?? SourceValidator(),
         _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore(),
         _settingsStore = settingsStore ?? SettingsStore(),
-        _twitterSessionStore = twitterSessionStore ?? TwitterSessionStore();
+        _twitterSessionStore = twitterSessionStore ?? TwitterSessionStore(),
+        _savedStore = savedStore ?? SavedStore();
 
   final FeedRepository _repository;
   final SourceStore _store;
@@ -32,6 +35,39 @@ class AppState extends ChangeNotifier {
   final TwitterGuestConfigStore _twitterConfigStore;
   final SettingsStore _settingsStore;
   final TwitterSessionStore _twitterSessionStore;
+  final SavedStore _savedStore;
+
+  List<FeedItem> _saved = [];
+
+  /// Posts the user kept, newest save first.
+  List<FeedItem> get saved => List.unmodifiable(_saved);
+
+  bool isSaved(FeedItem item) => _saved.any((s) => s.id == item.id);
+
+  /// Returns true if the post ended up saved, so callers can word their
+  /// confirmation without re-querying.
+  Future<bool> toggleSaved(FeedItem item) async {
+    final wasSaved = isSaved(item);
+    _saved = wasSaved
+        ? _saved.where((s) => s.id != item.id).toList()
+        : [item, ..._saved];
+    await _savedStore.save(_saved);
+    notifyListeners();
+    return !wasSaved;
+  }
+
+  Future<void> clearSaved() async {
+    _saved = [];
+    await _savedStore.save(_saved);
+    notifyListeners();
+  }
+
+  Future<List<FeedItem>> fetchAuthorPosts(FeedItem item) =>
+      _repository.fetchAuthorPosts(item, _sources,
+          twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
+
+  bool supportsAuthorFeed(FeedItem item) => _repository
+      .supportsAuthorFeed(item, _sources, twitterConfig: _twitterConfig);
 
   TwitterSession? _twitterAccount;
 
@@ -106,6 +142,16 @@ class AppState extends ChangeNotifier {
           mutedAccounts:
               _filters.mutedAccounts.where((a) => a != account).toList()));
 
+  ThemeMode _themeMode = ThemeMode.system;
+
+  ThemeMode get themeMode => _themeMode;
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    _themeMode = mode;
+    await _settingsStore.saveThemeMode(mode);
+    notifyListeners();
+  }
+
   bool _openInApp = true;
 
   /// Whether tapping a post opens Omni's built-in viewer or the browser.
@@ -146,7 +192,9 @@ class AppState extends ChangeNotifier {
     _twitterConfig = await _twitterConfigStore.load();
     _openInApp = await _settingsStore.loadOpenInApp();
     _filters = await _settingsStore.loadFilters();
+    _themeMode = await _settingsStore.loadThemeMode();
     _twitterAccount = await _twitterSessionStore.load();
+    _saved = await _savedStore.load();
     _initialized = true;
     notifyListeners();
     if (_sources.isNotEmpty) await refresh();

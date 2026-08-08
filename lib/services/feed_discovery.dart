@@ -49,6 +49,30 @@ class OpmlFeed {
   final String url;
 }
 
+/// Serialises feeds as OPML so subscriptions can leave Omni as easily as
+/// they arrive — a reader you can't export from is a trap.
+String buildOpml(List<OpmlFeed> feeds) {
+  String escape(String v) => v
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
+
+  final buffer = StringBuffer()
+    ..writeln('<?xml version="1.0" encoding="UTF-8"?>')
+    ..writeln('<opml version="2.0">')
+    ..writeln('  <head><title>Omni subscriptions</title></head>')
+    ..writeln('  <body>');
+  for (final feed in feeds) {
+    buffer.writeln('    <outline type="rss" text="${escape(feed.title)}" '
+        'title="${escape(feed.title)}" xmlUrl="${escape(feed.url)}"/>');
+  }
+  buffer
+    ..writeln('  </body>')
+    ..writeln('</opml>');
+  return buffer.toString();
+}
+
 /// Parses OPML (the standard feed-reader export format) into feed entries.
 /// Throws [FormatException] when the input isn't OPML.
 List<OpmlFeed> parseOpml(String content) {

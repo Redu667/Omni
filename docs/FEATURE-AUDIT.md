@@ -18,7 +18,7 @@ whether Omni is usable as a daily reader at all.
 | **Pagination / infinite scroll** | ✗ | Only the newest ~40 posts per source are ever fetched. There is no way to reach older posts — scroll to the bottom and the feed simply ends. Arguably the single biggest limitation. |
 | **Offline cache** | ✗ | Nothing is persisted. Every launch refetches from scratch; with no signal there is no feed at all, and a refresh discards what you were reading. |
 | **Read / unread state** | ✗ | No notion of what you've already seen, so refreshing loses your place. Feed readers live on this. |
-| **Save / bookmark posts** | ✗ | No way to keep a post. Everything is ephemeral. |
+| **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
 | **Search** | ✗ | Neither within the loaded feed nor against each network's search API. |
 | **Image viewer** | ✗ | Images are fixed-height crops; no tap-to-zoom, no pan, no swiping a gallery, no saving. Only the *first* image of a multi-image post is shown at all. |
@@ -28,7 +28,7 @@ whether Omni is usable as a daily reader at all.
 | **Share sheet** | ✗ | Can copy a link from the detail menu; can't share to another app. |
 | **Content warnings** | ✓ | Mastodon spoilers and Reddit `over_18` hide the body behind a reveal. |
 | **Mute filters** | ◐ | Words and accounts work. No regex, no per-source scoping, no time-limited mutes, no muting by hashtag or domain. |
-| **Display settings** | ✗ | No text size, density, or theme override; no compact/list layout. |
+| **Display settings** | ◐ | Light/dark/system theme override. No text size, density, or compact layout. |
 | **Per-source refresh interval** | ✗ | Everything refreshes together, on demand only. |
 | **Cross-post de-duplication** | ✗ | The same story from an RSS feed and a subreddit appears twice. Only exact id collisions are deduped. |
 | **Translation** | ✗ | No inline translation of foreign-language posts. |
@@ -50,7 +50,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | **Interactions** | ✗ | No favourite, boost, reply, or follow. Omni is read-only by design, but favouriting is the one most readers expect. |
 | **Notifications timeline** | ✗ | No mentions, follows, or replies view. |
 | **Lists & hashtag timelines** | ✗ | Only home and public. Mastodon lists are a major curation tool. |
-| **Profile view** | ✗ | Can't tap an author to see their posts. |
+| **Profile view** | ✓ | Tap an author to see their recent posts. |
 | **Bookmarks & favourites** | ✗ | Can't read your own saved posts. |
 | **Sensitive media blur** | ◐ | Whole post is hidden; no per-attachment blur-with-tap. |
 | **Filters (server-side)** | ✗ | Mastodon's own keyword filters are ignored; Omni's local ones are separate. |
@@ -73,7 +73,7 @@ Closest comparison: the official app, Graysky, deck.blue.
 | **Labels & moderation** | ✗ | Labeler annotations (including adult-content labels) are ignored, so Bluesky's own moderation is bypassed. Worth treating as a correctness issue, not a feature. |
 | **Thread parent context** | ✗ | Same gap as Mastodon: replies shown, parents not. |
 | **Interactions** | ✗ | No like, repost, reply, or follow. |
-| **Profile view** | ✗ | |
+| **Profile view** | ✓ | Tap an author to see their recent posts. |
 | **Video** | ✗ | |
 | **Session reuse** | ✗ | Signs in fresh on every refresh instead of caching the JWT — slower, and needlessly hard on their servers. |
 
@@ -96,7 +96,7 @@ Closest comparison: Infinity, RedReader, Boost.
 | **Video** | ✗ | `v.redd.it` unsupported. |
 | **Polls** | ✗ | |
 | **Flair** | ✗ | Neither shown nor filterable, though flair is how many subreddits organise themselves. |
-| **User profile feeds** | ✗ | Can't follow `u/someone`. |
+| **User profile feeds** | ◐ | Tapping an author shows their submitted posts; can't add `u/someone` as a standing source. |
 | **Logged-in Reddit** | ✗ | No account, so no home feed, saved posts, subscriptions, or voting. Would also sidestep the blocking below. |
 | **Crossposts** | ✗ | Render as empty posts. |
 | **Atom fallback is lossy** | ◐ | When Reddit blocks the JSON API (common, even for public subreddits) Omni falls back to Atom, which carries no score, comment count, or self-text. |
@@ -133,7 +133,7 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 | RSS 2.0 & Atom | ✓ | |
 | Feed auto-discovery | ✓ | Paste a site URL, Omni finds the feed. |
 | OPML import | ✓ | |
-| **OPML export** | ✗ | Import only — subscriptions can get in but not out, which is a lock-in problem for a feed reader. |
+| **OPML export** | ✓ | Settings → Export OPML. |
 | **Full-text extraction** | ✗ | Truncated feeds stay truncated. A readability pass would fix the many feeds that publish only a teaser. |
 | **Folders / categories** | ✗ | Flat list only; no grouping, and OPML folder structure is discarded on import. |
 | **Unread counts per feed** | ✗ | |

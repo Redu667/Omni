@@ -76,6 +76,51 @@ class MastodonClient extends SourceClient {
     return entries;
   }
 
+  @override
+  bool get supportsAuthorFeed => true;
+
+  @override
+  Future<List<FeedItem>> fetchAuthorPosts(FeedItem item, {int limit = 40}) async {
+    final acct = item.handle?.replaceFirst(RegExp(r'^@'), '');
+    if (acct == null || acct.isEmpty) return const [];
+
+    final instance =
+        source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
+    final token = source.params['accessToken'];
+    final headers = {
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+
+    // A handle has to be resolved to a numeric id before statuses can be
+    // fetched; for remote accounts this also pulls them into the instance.
+    final lookup = await httpClient.get(
+      Uri.https(instance, '/api/v1/accounts/lookup', {'acct': acct}),
+      headers: headers,
+    );
+    if (lookup.statusCode != 200) {
+      throw SourceFetchException(
+          source.displayName, 'Could not find @$acct on $instance.');
+    }
+    final accountId =
+        (jsonDecode(utf8.decode(lookup.bodyBytes)) as Map<String, dynamic>)['id']
+            as String?;
+    if (accountId == null) return const [];
+
+    final res = await httpClient.get(
+      Uri.https(instance, '/api/v1/accounts/$accountId/statuses',
+          {'limit': '$limit', 'exclude_replies': 'false'}),
+      headers: headers,
+    );
+    if (res.statusCode != 200) {
+      throw SourceFetchException(
+          source.displayName, 'HTTP ${res.statusCode} loading @$acct.');
+    }
+
+    return (jsonDecode(utf8.decode(res.bodyBytes)) as List)
+        .map((s) => _toItem(s as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
   FeedItem _toItem(Map<String, dynamic> status) {
     String? repostedBy;
     var s = status;

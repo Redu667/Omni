@@ -15,13 +15,18 @@ Moshidon, but spanning multiple networks.
   quick-start screen with curated no-account sources, and every source is
   test-fetched when you add it so mistakes fail immediately with a clear
   message.
-- **RSS auto-discovery & OPML import** — paste any website URL and Omni finds
-  its feed; bring your subscriptions from another reader via OPML.
+- **RSS auto-discovery, OPML import & export** — paste any website URL and
+  Omni finds its feed; bring subscriptions in from another reader, and take
+  them out again.
 - **Native post view** — tapping a post renders it with Flutter widgets in
   the same visual language as the timeline: full text, media, engagement
   counts, and the reply thread underneath (Reddit comments, Mastodon context,
   Bluesky threads). The original page is one tap away, in Omni's browser or
   yours, but you never have to go there to read.
+- **Open any account** — tap an author anywhere to see their recent posts,
+  on Mastodon, Bluesky, Reddit or X.
+- **Save posts** — long-press to keep one. Saved posts are stored in full, so
+  they stay readable after the source is removed or the original is deleted.
 - **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
 - **Content warnings honoured** — Mastodon spoilers and Reddit's over-18 flag
   hide a post's body and media behind a reveal rather than showing content the
