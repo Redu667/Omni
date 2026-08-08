@@ -74,6 +74,23 @@ class BlueskyClient extends SourceClient {
   }
 
   @override
+  bool get supportsAuthorFeed => true;
+
+  @override
+  Future<List<FeedItem>> fetchAuthorPosts(FeedItem item, {int limit = 40}) async {
+    final handle = item.handle?.replaceFirst(RegExp(r'^@'), '');
+    if (handle == null || handle.isEmpty) return const [];
+
+    final feed = await _getFeed(
+      Uri.https(_publicHost, '/xrpc/app.bsky.feed.getAuthorFeed',
+          {'actor': handle, 'limit': '$limit'}),
+    );
+    return feed
+        .map((e) => _toItem(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
     final uri = item.nativeId;
     if (uri == null) return const [];

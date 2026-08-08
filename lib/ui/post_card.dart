@@ -1,11 +1,15 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:timeago/timeago.dart' as timeago;
-import 'package:url_launcher/url_launcher.dart';
+
+import 'package:provider/provider.dart';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
+import '../state/app_state.dart';
+import 'post_actions.dart';
 import 'post_detail_screen.dart';
+import 'profile_screen.dart';
 
 class PostCard extends StatefulWidget {
   const PostCard({super.key, required this.item});
@@ -21,18 +25,12 @@ class _PostCardState extends State<PostCard> {
 
   FeedItem get item => widget.item;
 
-  Future<void> _openExternally() async {
-    final url = item.url;
-    if (url == null) return;
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-  }
-
-  /// Opens Omni's own rendering of the post. The browser is reachable from
-  /// there, or directly via long-press.
+  /// Opens Omni's own rendering of the post. Everything else — saving, the
+  /// author's other posts, the browser — lives behind a long-press.
   void _open(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PostDetailScreen(item: item)),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => PostDetailScreen(item: item)));
   }
 
   @override
@@ -44,7 +42,7 @@ class _PostCardState extends State<PostCard> {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _open(context),
-        onLongPress: _openExternally,
+        onLongPress: () => showPostActions(context, item),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -55,27 +53,43 @@ class _PostCardState extends State<PostCard> {
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Row(
                     children: [
-                      Icon(Icons.repeat,
-                          size: 14, color: theme.colorScheme.outline),
+                      Icon(
+                        Icons.repeat,
+                        size: 14,
+                        color: theme.colorScheme.outline,
+                      ),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                           '${item.repostedBy} boosted',
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: theme.colorScheme.outline),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
                   ),
                 ),
-              _Header(item: item),
+              _Header(
+                item: item,
+                onTapAuthor: context.read<AppState>().supportsAuthorFeed(item)
+                    ? () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileScreen(item: item),
+                        ),
+                      )
+                    : null,
+              ),
               if (item.title != null && item.title!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Text(item.title!,
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  child: Text(
+                    item.title!,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               if (item.needsReveal && !_revealed)
                 Padding(
@@ -95,8 +109,7 @@ class _PostCardState extends State<PostCard> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              if (item.imageUrls.isNotEmpty &&
-                  (!item.needsReveal || _revealed))
+              if (item.imageUrls.isNotEmpty && (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: ClipRRect(
@@ -122,7 +135,10 @@ class _PostCardState extends State<PostCard> {
                   child: Row(
                     children: [
                       if (item.replies != null)
-                        _Stat(icon: Icons.chat_bubble_outline, value: item.replies!),
+                        _Stat(
+                          icon: Icons.chat_bubble_outline,
+                          value: item.replies!,
+                        ),
                       if (item.reposts != null)
                         _Stat(icon: Icons.repeat, value: item.reposts!),
                       if (item.likes != null)
@@ -139,9 +155,12 @@ class _PostCardState extends State<PostCard> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.item});
+  const _Header({required this.item, this.onTapAuthor});
 
   final FeedItem item;
+
+  /// Null where the network has no author feed to open.
+  final VoidCallback? onTapAuthor;
 
   @override
   Widget build(BuildContext context) {
@@ -151,32 +170,41 @@ class _Header extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CircleAvatar(
-          radius: 20,
-          backgroundColor: networkColor.withValues(alpha: 0.15),
-          foregroundImage: item.avatarUrl != null
-              ? CachedNetworkImageProvider(item.avatarUrl!)
-              : null,
-          child: Icon(item.network.icon, size: 20, color: networkColor),
+        GestureDetector(
+          onTap: onTapAuthor,
+          child: CircleAvatar(
+            radius: 20,
+            backgroundColor: networkColor.withValues(alpha: 0.15),
+            foregroundImage: item.avatarUrl != null
+                ? CachedNetworkImageProvider(item.avatarUrl!)
+                : null,
+            child: Icon(item.network.icon, size: 20, color: networkColor),
+          ),
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(item.author,
+          child: GestureDetector(
+            onTap: onTapAuthor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.author,
                   style: theme.textTheme.titleSmall,
-                  overflow: TextOverflow.ellipsis),
-              Text(
-                [
-                  if (item.handle != null) item.handle!,
-                  if (item.context != null) item.context!,
-                ].join(' · '),
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  [
+                    if (item.handle != null) item.handle!,
+                    if (item.context != null) item.context!,
+                  ].join(' · '),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(width: 8),
@@ -187,8 +215,9 @@ class _Header extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               timeago.format(item.createdAt, locale: 'en_short'),
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
           ],
         ),
@@ -212,9 +241,12 @@ class _Stat extends StatelessWidget {
         children: [
           Icon(icon, size: 15, color: theme.colorScheme.outline),
           const SizedBox(width: 4),
-          Text(_compact(value),
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline)),
+          Text(
+            _compact(value),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
         ],
       ),
     );
@@ -226,7 +258,6 @@ class _Stat extends StatelessWidget {
     return '$n';
   }
 }
-
 
 /// Stands in for a post the author flagged, so a content warning is honoured
 /// rather than decorative.
@@ -253,14 +284,18 @@ class _RevealPrompt extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.visibility_off_outlined,
-                  size: 16, color: theme.colorScheme.outline),
+              Icon(
+                Icons.visibility_off_outlined,
+                size: 16,
+                color: theme.colorScheme.outline,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   warning ?? 'Marked sensitive',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w500),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ],

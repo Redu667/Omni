@@ -5,7 +5,8 @@ import '../models/network.dart';
 import '../state/app_state.dart';
 import 'add_source_screen.dart';
 import 'post_card.dart';
-import 'sources_screen.dart';
+import 'saved_screen.dart';
+import 'settings_screen.dart';
 import 'starter_picks_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -19,11 +20,19 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Omni'),
         actions: [
+          if (state.saved.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.bookmark_border),
+              tooltip: 'Saved posts',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SavedScreen()),
+              ),
+            ),
           IconButton(
-            icon: const Icon(Icons.rss_feed),
-            tooltip: 'Manage sources',
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SourcesScreen()),
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
           ),
         ],

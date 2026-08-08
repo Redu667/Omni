@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:url_launcher/url_launcher.dart';
@@ -8,7 +7,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
+import 'post_actions.dart';
 import 'post_view_screen.dart';
+import 'profile_screen.dart';
 
 /// Renders a post with Flutter widgets — same visual language as the
 /// timeline — rather than embedding a browser. Replies load underneath
@@ -56,16 +57,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-  Future<void> _muteAuthor() async {
-    final item = widget.item;
-    final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    await context.read<AppState>().muteAccount(item.handle ?? item.author);
-    messenger.showSnackBar(SnackBar(
-        content: Text('Muted ${item.handle ?? item.author}')));
-    navigator.pop();
-  }
-
   Future<void> _openOriginal({required bool external}) async {
     final url = widget.item.url;
     if (url == null) return;
@@ -88,31 +79,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       appBar: AppBar(
         title: Text(item.network.label),
         actions: [
-          if (item.url != null)
-            PopupMenuButton<String>(
-              onSelected: (choice) => switch (choice) {
-                'in_app' => _openOriginal(external: false),
-                'browser' => _openOriginal(external: true),
-                'copy' => Clipboard.setData(ClipboardData(text: item.url!))
-                    .then((_) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Link copied')));
-                  }),
-                'mute' => _muteAuthor(),
-                _ => null,
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                    value: 'in_app', child: Text('Open original in Omni')),
-                const PopupMenuItem(
-                    value: 'browser', child: Text('Open in browser')),
-                const PopupMenuItem(value: 'copy', child: Text('Copy link')),
-                PopupMenuItem(
-                    value: 'mute',
-                    child: Text('Mute ${item.handle ?? item.author}')),
-              ],
+          IconButton(
+            icon: Icon(
+              context.watch<AppState>().isSaved(item)
+                  ? Icons.bookmark
+                  : Icons.bookmark_border,
             ),
+            tooltip: 'Save',
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final nowSaved = await context.read<AppState>().toggleSaved(item);
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(nowSaved ? 'Saved' : 'Removed from saved'),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More',
+            onPressed: () => showPostActions(context, item),
+          ),
         ],
       ),
       body: RefreshIndicator(
@@ -125,7 +113,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               return _PostBody(
                 item: item,
                 onOpenOriginal: () => _openOriginal(
-                    external: !context.read<AppState>().openInApp),
+                  external: !context.read<AppState>().openInApp,
+                ),
               );
             }
             if (index == 1) {
@@ -175,53 +164,83 @@ class _PostBodyState extends State<_PostBody> {
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
                 children: [
-                  Icon(Icons.repeat, size: 15, color: theme.colorScheme.outline),
+                  Icon(
+                    Icons.repeat,
+                    size: 15,
+                    color: theme.colorScheme.outline,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text('${item.repostedBy} boosted',
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: theme.colorScheme.outline)),
+                    child: Text(
+                      '${item.repostedBy} boosted',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: item.network.color.withValues(alpha: 0.15),
-                foregroundImage: item.avatarUrl != null
-                    ? CachedNetworkImageProvider(item.avatarUrl!)
-                    : null,
-                child: Icon(item.network.icon,
-                    size: 22, color: item.network.color),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(item.author, style: theme.textTheme.titleMedium),
-                    Text(
-                      [
-                        if (item.handle != null) item.handle!,
-                        if (item.context != null) item.context!,
-                      ].join(' · '),
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.outline),
+          InkWell(
+            onTap: context.read<AppState>().supportsAuthorFeed(item)
+                ? () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ProfileScreen(item: item),
                     ),
-                  ],
+                  )
+                : null,
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: item.network.color.withValues(alpha: 0.15),
+                  foregroundImage: item.avatarUrl != null
+                      ? CachedNetworkImageProvider(item.avatarUrl!)
+                      : null,
+                  child: Icon(
+                    item.network.icon,
+                    size: 22,
+                    color: item.network.color,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.author, style: theme.textTheme.titleMedium),
+                      Text(
+                        [
+                          if (item.handle != null) item.handle!,
+                          if (item.context != null) item.context!,
+                        ].join(' · '),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (context.read<AppState>().supportsAuthorFeed(item))
+                  Icon(
+                    Icons.chevron_right,
+                    size: 20,
+                    color: theme.colorScheme.outline,
+                  ),
+              ],
+            ),
           ),
           if (item.title?.isNotEmpty ?? false)
             Padding(
               padding: const EdgeInsets.only(top: 16),
-              child: SelectableText(item.title!,
-                  style: theme.textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w600)),
+              child: SelectableText(
+                item.title!,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           if (hidden)
             Padding(
@@ -238,14 +257,18 @@ class _PostBodyState extends State<_PostBody> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.visibility_off_outlined,
-                            size: 18, color: theme.colorScheme.outline),
+                        Icon(
+                          Icons.visibility_off_outlined,
+                          size: 18,
+                          color: theme.colorScheme.outline,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             item.contentWarning ?? 'Marked sensitive',
-                            style: theme.textTheme.bodyLarge
-                                ?.copyWith(fontWeight: FontWeight.w500),
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -296,17 +319,23 @@ class _PostBodyState extends State<_PostBody> {
             padding: const EdgeInsets.only(top: 16),
             child: Text(
               timeago.format(item.createdAt),
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.outline),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
           ),
-          if (item.likes != null || item.reposts != null || item.replies != null)
+          if (item.likes != null ||
+              item.reposts != null ||
+              item.replies != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Row(
                 children: [
                   if (item.replies != null)
-                    _Stat(icon: Icons.chat_bubble_outline, value: item.replies!),
+                    _Stat(
+                      icon: Icons.chat_bubble_outline,
+                      value: item.replies!,
+                    ),
                   if (item.reposts != null)
                     _Stat(icon: Icons.repeat, value: item.reposts!),
                   if (item.likes != null)
@@ -319,9 +348,11 @@ class _PostBodyState extends State<_PostBody> {
               padding: const EdgeInsets.only(top: 16),
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.article_outlined, size: 18),
-                label: Text(item.network == Network.rss
-                    ? 'Read full article'
-                    : 'View original'),
+                label: Text(
+                  item.network == Network.rss
+                      ? 'Read full article'
+                      : 'View original',
+                ),
                 onPressed: widget.onOpenOriginal,
               ),
             ),
@@ -369,9 +400,12 @@ class _ThreadHeader extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text("Couldn't load replies",
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.outline)),
+              child: Text(
+                "Couldn't load replies",
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
             ),
             TextButton(onPressed: onRetry, child: const Text('Retry')),
           ],
@@ -386,16 +420,19 @@ class _ThreadHeader extends StatelessWidget {
           network == Network.rss
               ? 'Feeds have no discussion to show.'
               : 'No replies yet.',
-          style: theme.textTheme.bodyMedium
-              ?.copyWith(color: theme.colorScheme.outline),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
         ),
       );
     }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-      child: Text('$count ${count == 1 ? 'reply' : 'replies'}',
-          style: theme.textTheme.titleSmall),
+      child: Text(
+        '$count ${count == 1 ? 'reply' : 'replies'}',
+        style: theme.textTheme.titleSmall,
+      ),
     );
   }
 }
@@ -442,8 +479,9 @@ class _ReplyTile extends StatelessWidget {
               ),
               Text(
                 timeago.format(item.createdAt, locale: 'en_short'),
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.outline),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
               ),
             ],
           ),
@@ -454,12 +492,18 @@ class _ReplyTile extends StatelessWidget {
               padding: const EdgeInsets.only(top: 6),
               child: Row(
                 children: [
-                  Icon(Icons.arrow_upward,
-                      size: 13, color: theme.colorScheme.outline),
+                  Icon(
+                    Icons.arrow_upward,
+                    size: 13,
+                    color: theme.colorScheme.outline,
+                  ),
                   const SizedBox(width: 4),
-                  Text('${item.likes}',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.outline)),
+                  Text(
+                    '${item.likes}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -484,9 +528,12 @@ class _Stat extends StatelessWidget {
         children: [
           Icon(icon, size: 16, color: theme.colorScheme.outline),
           const SizedBox(width: 5),
-          Text('$value',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.outline)),
+          Text(
+            '$value',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
         ],
       ),
     );

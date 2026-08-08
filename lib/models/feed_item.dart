@@ -77,6 +77,57 @@ class FeedItem {
 
   /// What the detail view should render as the post body.
   String get body => (fullText?.isNotEmpty ?? false) ? fullText! : text;
+
+  /// Saved posts are stored as-is rather than re-fetched, so a post stays
+  /// readable even after its source is removed or the network is down.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'sourceId': sourceId,
+        'network': network.name,
+        'author': author,
+        'handle': handle,
+        'avatarUrl': avatarUrl,
+        'title': title,
+        'text': text,
+        'url': url,
+        'imageUrls': imageUrls,
+        'repostedBy': repostedBy,
+        'likes': likes,
+        'reposts': reposts,
+        'replies': replies,
+        'context': context,
+        'fullText': fullText,
+        'nativeId': nativeId,
+        'contentWarning': contentWarning,
+        'sensitive': sensitive,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory FeedItem.fromJson(Map<String, dynamic> json) => FeedItem(
+        id: json['id'] as String,
+        sourceId: json['sourceId'] as String? ?? '',
+        network: NetworkInfo.fromName(json['network'] as String),
+        author: json['author'] as String? ?? '',
+        handle: json['handle'] as String?,
+        avatarUrl: json['avatarUrl'] as String?,
+        title: json['title'] as String?,
+        text: json['text'] as String? ?? '',
+        url: json['url'] as String?,
+        imageUrls:
+            (json['imageUrls'] as List? ?? const []).cast<String>().toList(),
+        repostedBy: json['repostedBy'] as String?,
+        likes: json['likes'] as int?,
+        reposts: json['reposts'] as int?,
+        replies: json['replies'] as int?,
+        context: json['context'] as String?,
+        fullText: json['fullText'] as String?,
+        nativeId: json['nativeId'] as String?,
+        contentWarning: json['contentWarning'] as String?,
+        sensitive: json['sensitive'] as bool? ?? false,
+        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '')
+                ?.toUtc() ??
+            DateTime.now().toUtc(),
+      );
 }
 
 /// One post in a reply thread, flattened with its nesting level so the UI

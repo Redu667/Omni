@@ -28,6 +28,15 @@ abstract class SourceClient {
   Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async =>
       const [];
 
+  /// Recent posts by whoever wrote [item]. Networks with no concept of an
+  /// author feed (RSS) return nothing.
+  Future<List<FeedItem>> fetchAuthorPosts(FeedItem item, {int limit = 40}) async =>
+      const [];
+
+  /// Whether [fetchAuthorPosts] can do anything for this network, so the UI
+  /// only offers a profile where one exists.
+  bool get supportsAuthorFeed => false;
+
   /// Twitter sources come in two flavours: [TwitterGuestClient] (anonymous,
   /// no API plan) and [TwitterClient] (official API v2, paid). [twitterConfig]
   /// and [twitterSession] are only consulted for the anonymous path.

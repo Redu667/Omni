@@ -172,6 +172,28 @@ class RedditClient extends SourceClient {
   }
 
   @override
+  bool get supportsAuthorFeed => true;
+
+  @override
+  Future<List<FeedItem>> fetchAuthorPosts(FeedItem item, {int limit = 40}) async {
+    final user = item.author.replaceFirst(RegExp(r'^/?u/'), '');
+    if (user.isEmpty || user.startsWith('[')) return const [];
+
+    for (final host in _hosts) {
+      final res = await httpClient.get(
+        Uri.https(host, '/user/$user/submitted.json',
+            {'limit': '$limit', 'raw_json': '1'}),
+        headers: _headers,
+      );
+      if (res.statusCode != 200) continue;
+      final parsed = _tryParse(res);
+      if (parsed != null) return parsed;
+    }
+    throw SourceFetchException(
+        source.displayName, 'Reddit would not serve u/$user right now.');
+  }
+
+  @override
   Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
     final permalink = item.nativeId ?? item.url;
     if (permalink == null) return const [];

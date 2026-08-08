@@ -97,6 +97,24 @@ class TwitterGuestClient extends SourceClient {
   /// accounts don't trip it.
   static const staleThreshold = Duration(days: 45);
 
+  @override
+  bool get supportsAuthorFeed => true;
+
+  @override
+  Future<List<FeedItem>> fetchAuthorPosts(FeedItem item, {int limit = 40}) async {
+    final handle = item.handle?.replaceFirst(RegExp(r'^@'), '');
+    if (handle == null || handle.isEmpty) return const [];
+
+    try {
+      final userId = await _resolveUserId(handle);
+      final items = await _fetchUserTweets(userId, limit);
+      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return items;
+    } on TwitterGuestException catch (e) {
+      throw SourceFetchException(source.displayName, e.message);
+    }
+  }
+
   Future<String> _resolveUserId(String username) async {
     final body = await _graphql(
       queryId: config.userByScreenNameQueryId,

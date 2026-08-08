@@ -47,6 +47,45 @@ class FeedRepository {
     ).fetchThread(item);
   }
 
+  /// Recent posts by whoever wrote [item], asked of its own source.
+  Future<List<FeedItem>> fetchAuthorPosts(
+    FeedItem item,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
+  }) async {
+    final client = _clientFor(item, sources,
+        twitterConfig: twitterConfig, twitterAccount: twitterAccount);
+    if (client == null) return const [];
+    return client.fetchAuthorPosts(item);
+  }
+
+  bool supportsAuthorFeed(
+    FeedItem item,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+  }) =>
+      _clientFor(item, sources, twitterConfig: twitterConfig)
+          ?.supportsAuthorFeed ??
+      false;
+
+  SourceClient? _clientFor(
+    FeedItem item,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
+  }) {
+    final source = sources.where((s) => s.id == item.sourceId).firstOrNull;
+    if (source == null) return null;
+    return SourceClient.forSource(
+      source,
+      _http,
+      twitterConfig: twitterConfig,
+      twitterSession: _twitterSession,
+      twitterAccount: twitterAccount,
+    );
+  }
+
   Future<FeedResult> fetchAll(
     List<FeedSource> sources, {
     int limitPerSource = 40,
