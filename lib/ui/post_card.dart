@@ -8,6 +8,7 @@ import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
 import 'post_actions.dart';
+import 'post_extras.dart';
 import 'post_detail_screen.dart';
 import 'profile_screen.dart';
 
@@ -95,6 +96,11 @@ class _PostCardState extends State<PostCard> {
                     ),
                   ),
                 ),
+              if (item.flair != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FlairChip(flair: item.flair!),
+                ),
               if (item.needsReveal && !_revealed)
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
@@ -153,6 +159,12 @@ class _PostCardState extends State<PostCard> {
                     ],
                   ),
                 ),
+              if (!item.needsReveal || _revealed) ...[
+                if (item.quoted != null) QuotedPost(item: item.quoted!),
+                if (item.poll != null) PollView(poll: item.poll!),
+                if (item.linkCard != null && item.imageUrls.isEmpty)
+                  LinkCardView(card: item.linkCard!),
+              ],
               if (item.likes != null ||
                   item.reposts != null ||
                   item.replies != null)

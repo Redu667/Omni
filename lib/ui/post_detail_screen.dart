@@ -8,6 +8,7 @@ import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
 import 'post_actions.dart';
+import 'post_extras.dart';
 import 'post_view_screen.dart';
 import 'profile_screen.dart';
 
@@ -254,6 +255,11 @@ class _PostBodyState extends State<_PostBody> {
               ],
             ),
           ),
+          if (item.flair != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FlairChip(flair: item.flair!),
+            ),
           if (item.title?.isNotEmpty ?? false)
             Padding(
               padding: const EdgeInsets.only(top: 16),
@@ -362,6 +368,12 @@ class _PostBodyState extends State<_PostBody> {
                 ],
               ),
             ),
+          if (!hidden) ...[
+            if (item.quoted != null)
+              QuotedPost(item: item.quoted!, compact: false),
+            if (item.poll != null) PollView(poll: item.poll!),
+            if (item.linkCard != null) LinkCardView(card: item.linkCard!),
+          ],
           Padding(
             padding: const EdgeInsets.only(top: 16),
             child: Text(

@@ -165,6 +165,70 @@ class BlueskyClient extends SourceClient {
     }
   }
 
+  /// Bluesky wraps a quoted post in `record`, or in `record.record` when
+  /// the post also has media of its own.
+  FeedItem? _quotedFrom(Map<String, dynamic>? embed) {
+    if (embed == null) return null;
+
+    var record = embed['record'] as Map<String, dynamic>?;
+    // recordWithMedia nests the quote one level deeper.
+    if (record != null && record['record'] is Map<String, dynamic>) {
+      record = record['record'] as Map<String, dynamic>;
+    }
+    if (record == null) return null;
+
+    // Blocked, deleted and not-found quotes come back as typed stubs.
+    final type = record[r'$type'] as String? ?? '';
+    if (type.contains('notFound') ||
+        type.contains('blocked') ||
+        type.contains('detached')) {
+      return null;
+    }
+
+    final author = record['author'] as Map<String, dynamic>?;
+    final value = record['value'] as Map<String, dynamic>?;
+    if (author == null || value == null) return null;
+
+    final handle = author['handle'] as String? ?? '';
+    final uriParts = (record['uri'] as String? ?? '').split('/');
+    final rkey = uriParts.isNotEmpty ? uriParts.last : '';
+
+    return FeedItem(
+      id: '${source.id}:quote:${record['cid'] ?? record['uri']}',
+      sourceId: source.id,
+      network: Network.bluesky,
+      author: author['displayName'] as String? ?? handle,
+      handle: '@$handle',
+      avatarUrl: author['avatar'] as String?,
+      text: value['text'] as String? ?? '',
+      url: rkey.isNotEmpty
+          ? 'https://bsky.app/profile/$handle/post/$rkey'
+          : null,
+      nativeId: record['uri'] as String?,
+      createdAt:
+          DateTime.tryParse(value['createdAt'] as String? ?? '')?.toUtc() ??
+              DateTime.now().toUtc(),
+    );
+  }
+
+  static LinkCard? _linkCardFrom(Map<String, dynamic>? embed) {
+    if (embed == null) return null;
+    final external = (embed['external'] ??
+            (embed['media'] as Map<String, dynamic>?)?['external'])
+        as Map<String, dynamic>?;
+    if (external == null) return null;
+
+    final uri = external['uri'] as String?;
+    if (uri == null) return null;
+
+    return LinkCard(
+      url: uri,
+      title: external['title'] as String?,
+      description: external['description'] as String?,
+      imageUrl: external['thumb'] as String?,
+    );
+  }
+
   FeedItem _toItem(Map<String, dynamic> feedEntry) {
     final post = feedEntry['post'] as Map<String, dynamic>;
     final author = post['author'] as Map<String, dynamic>;
@@ -190,6 +254,11 @@ class BlueskyClient extends SourceClient {
         }
       }
     }
+
+    // A quote with the quoted post missing reads as bare commentary, which
+    // can mean the opposite of what the author intended.
+    final quoted = _quotedFrom(embed);
+    final linkCard = _linkCardFrom(embed);
 
     // Bluesky moderation happens through labels. Ignoring them means
     // bypassing the network's own content controls, so treat the adult
@@ -220,6 +289,8 @@ class BlueskyClient extends SourceClient {
           : null,
       nativeId: post['uri'] as String?,
       media: images,
+      quoted: quoted,
+      linkCard: linkCard,
       contentWarning: adultLabel == null ? null : _labelLabel(adultLabel),
       sensitive: adultLabel != null,
       repostedBy: repostedBy,

@@ -341,6 +341,10 @@ class TwitterGuestClient extends SourceClient {
             const [])
         .cast<Map<String, dynamic>>();
 
+    // A quote tweet without its quoted post is bare commentary, which can
+    // read as the opposite of what was meant.
+    final quoted = _quotedFrom(tweet);
+
     return FeedItem(
       id: '${source.id}:${restId ?? legacy['id_str']}',
       sourceId: source.id,
@@ -360,11 +364,39 @@ class TwitterGuestClient extends SourceClient {
               alt: m['ext_alt_text'] as String?,
             ),
       ],
+      quoted: quoted,
       repostedBy: repostedBy,
       likes: legacy['favorite_count'] as int?,
       reposts: legacy['retweet_count'] as int?,
       replies: legacy['reply_count'] as int?,
       context: source.displayName,
+      createdAt: parseTwitterDate(legacy['created_at'] as String?) ??
+          DateTime.now().toUtc(),
+    );
+  }
+
+  /// X nests the quoted tweet under quoted_status_result.
+  FeedItem? _quotedFrom(Map<String, dynamic> tweet) {
+    final result = _unwrap(_dig(tweet, ['quoted_status_result', 'result']));
+    if (result == null) return null;
+
+    final legacy = result['legacy'] as Map<String, dynamic>?;
+    if (legacy == null) return null;
+
+    final screenName = _userField(result, 'screen_name') ?? '';
+    final restId = result['rest_id'] as String?;
+
+    return FeedItem(
+      id: '${source.id}:quote:${restId ?? legacy['id_str']}',
+      sourceId: source.id,
+      network: Network.twitter,
+      author: _userField(result, 'name') ?? screenName,
+      handle: screenName.isNotEmpty ? '@$screenName' : null,
+      avatarUrl: _userField(result, 'profile_image_url_https'),
+      text: _cleanText(legacy['full_text'] as String? ?? '', legacy),
+      url: screenName.isNotEmpty && restId != null
+          ? 'https://x.com/$screenName/status/$restId'
+          : null,
       createdAt: parseTwitterDate(legacy['created_at'] as String?) ??
           DateTime.now().toUtc(),
     );

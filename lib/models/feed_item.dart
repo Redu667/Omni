@@ -21,6 +21,77 @@ class MediaItem {
       );
 }
 
+/// A link a post points at, with whatever preview the network provides.
+class LinkCard {
+  const LinkCard({required this.url, this.title, this.description, this.imageUrl});
+
+  final String url;
+  final String? title;
+  final String? description;
+  final String? imageUrl;
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'title': title,
+        'description': description,
+        'imageUrl': imageUrl,
+      };
+
+  factory LinkCard.fromJson(Map<String, dynamic> json) => LinkCard(
+        url: json['url'] as String,
+        title: json['title'] as String?,
+        description: json['description'] as String?,
+        imageUrl: json['imageUrl'] as String?,
+      );
+}
+
+/// One choice in a poll.
+class PollOption {
+  const PollOption({required this.title, this.votes = 0});
+
+  final String title;
+  final int votes;
+
+  Map<String, dynamic> toJson() => {'title': title, 'votes': votes};
+
+  factory PollOption.fromJson(Map<String, dynamic> json) => PollOption(
+        title: json['title'] as String? ?? '',
+        votes: json['votes'] as int? ?? 0,
+      );
+}
+
+/// A poll attached to a post. Without this, poll posts render as empty
+/// text — the question lives in the post body but the options don't.
+class Poll {
+  const Poll({required this.options, this.totalVotes = 0, this.expiresAt, this.expired = false});
+
+  final List<PollOption> options;
+  final int totalVotes;
+  final DateTime? expiresAt;
+  final bool expired;
+
+  /// Share of the vote for one option, 0..1.
+  double shareOf(PollOption option) =>
+      totalVotes == 0 ? 0 : option.votes / totalVotes;
+
+  Map<String, dynamic> toJson() => {
+        'options': [for (final o in options) o.toJson()],
+        'totalVotes': totalVotes,
+        'expiresAt': expiresAt?.toIso8601String(),
+        'expired': expired,
+      };
+
+  factory Poll.fromJson(Map<String, dynamic> json) => Poll(
+        options: [
+          for (final o in (json['options'] as List? ?? const []))
+            PollOption.fromJson((o as Map).cast<String, dynamic>()),
+        ],
+        totalVotes: json['totalVotes'] as int? ?? 0,
+        expiresAt: DateTime.tryParse(json['expiresAt'] as String? ?? ''),
+        expired: json['expired'] as bool? ?? false,
+      );
+}
+
 /// A single post/entry normalized from any network into one shape.
 class FeedItem {
   FeedItem({
@@ -44,6 +115,10 @@ class FeedItem {
     this.nativeId,
     this.contentWarning,
     this.sensitive = false,
+    this.quoted,
+    this.linkCard,
+    this.poll,
+    this.flair,
   });
 
   /// Globally unique: `sourceId:nativeId`.
@@ -98,6 +173,19 @@ class FeedItem {
 
   bool get needsReveal => (contentWarning?.isNotEmpty ?? false) || sensitive;
 
+  /// A post this one quotes. Showing only the commentary without what it
+  /// quotes can invert the meaning entirely, so this is carried one level
+  /// deep (a quote of a quote shows the outer one only).
+  final FeedItem? quoted;
+
+  /// Preview for a link the post points at.
+  final LinkCard? linkCard;
+
+  final Poll? poll;
+
+  /// Reddit's post flair, which is how many subreddits organise themselves.
+  final String? flair;
+
   final DateTime createdAt;
 
   /// What the detail view should render as the post body.
@@ -125,6 +213,10 @@ class FeedItem {
         'nativeId': nativeId,
         'contentWarning': contentWarning,
         'sensitive': sensitive,
+        'quoted': quoted?.toJson(),
+        'linkCard': linkCard?.toJson(),
+        'poll': poll?.toJson(),
+        'flair': flair,
         'createdAt': createdAt.toIso8601String(),
       };
 
@@ -154,6 +246,17 @@ class FeedItem {
         nativeId: json['nativeId'] as String?,
         contentWarning: json['contentWarning'] as String?,
         sensitive: json['sensitive'] as bool? ?? false,
+        quoted: json['quoted'] == null
+            ? null
+            : FeedItem.fromJson((json['quoted'] as Map).cast<String, dynamic>()),
+        linkCard: json['linkCard'] == null
+            ? null
+            : LinkCard.fromJson(
+                (json['linkCard'] as Map).cast<String, dynamic>()),
+        poll: json['poll'] == null
+            ? null
+            : Poll.fromJson((json['poll'] as Map).cast<String, dynamic>()),
+        flair: json['flair'] as String?,
         createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '')
                 ?.toUtc() ??
             DateTime.now().toUtc(),

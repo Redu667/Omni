@@ -39,7 +39,7 @@ whether Omni is usable as a daily reader at all.
 | **Image viewer** | ◐ | The detail view shows every image; the timeline shows the first with a count badge. Still no tap-to-zoom, pan, or saving. |
 | **Video** | ✗ | No playback anywhere. Reddit `v.redd.it`, Mastodon and Bluesky video, and X video are all silently dropped. |
 | **Alt text** | ✓ | Carried from Mastodon, Bluesky and X, shown under each image in the detail view, exposed to screen readers, and flagged with an ALT badge in the timeline. |
-| **Link preview cards** | ✗ | Link posts show a bare URL rather than title/description/thumbnail. |
+| **Link preview cards** | ✓ | Mastodon cards, Bluesky external embeds and Reddit outbound links render as tappable cards. |
 | **Share sheet** | ✗ | Can copy a link from the detail menu; can't share to another app. |
 | **Content warnings** | ✓ | Mastodon spoilers and Reddit `over_18` hide the body behind a reveal. |
 | **Mute filters** | ◐ | Words and accounts work. No regex, no per-source scoping, no time-limited mutes, no muting by hashtag or domain. |
@@ -61,7 +61,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | Public / local timeline | ✓ | No account needed. |
 | Content warnings | ✓ | |
 | **Thread parent context** | ✓ | Ancestors are shown above the post, tappable to walk up the conversation. |
-| **Polls** | ✗ | Poll posts render as empty text. |
+| **Polls** | ✓ | Options and vote shares shown. Read-only — Omni doesn't vote. |
 | **Custom emoji** | ✗ | `:shortcodes:` show as literal text instead of the instance's emoji. |
 | **Interactions** | ✗ | No favourite, boost, reply, or follow. Omni is read-only by design, but favouriting is the one most readers expect. |
 | **Notifications timeline** | ✗ | No mentions, follows, or replies view. |
@@ -84,8 +84,8 @@ Closest comparison: the official app, Graysky, deck.blue.
 | Thread replies | ✓ | |
 | **Custom feeds** | ✗ | Bluesky's headline feature — "Discover", "What's Hot", and thousands of community algorithms — is entirely absent. Arguably the biggest single omission for Bluesky users. |
 | **Lists** | ✗ | No list timelines or moderation lists. |
-| **Quote posts** | ✗ | The quoted post isn't rendered; only the commentary shows, which can invert the meaning. |
-| **External embed cards** | ✗ | Link embeds are dropped rather than shown as cards. |
+| **Quote posts** | ✓ | The quoted post renders inline; deleted and blocked quotes are omitted rather than shown blank. |
+| **External embed cards** | ✓ | |
 | **Labels & moderation** | ◐ | Adult and graphic-media labels hide the post behind a reveal. Custom labeler subscriptions and per-label preferences aren't supported. |
 | **Thread parent context** | ✓ | The parent chain is walked and shown oldest-first. |
 | **Interactions** | ✗ | No like, repost, reply, or follow. |
@@ -108,13 +108,13 @@ Closest comparison: Infinity, RedReader, Boost.
 | **Comment sort** | ✗ | Hardcoded to `top`; no best/new/controversial/old. |
 | **Collapse comment threads** | ✗ | Long chains can't be folded, which makes big threads unreadable on a phone. |
 | **Load more comments** | ✗ | "more" stubs are skipped, so deep threads are silently truncated. |
-| **Galleries** | ✗ | Multi-image posts show one image. |
+| **Galleries** | ✓ | Every image of a gallery is carried, with captions as alt text. |
 | **Video** | ✗ | `v.redd.it` unsupported. |
 | **Polls** | ✗ | |
-| **Flair** | ✗ | Neither shown nor filterable, though flair is how many subreddits organise themselves. |
+| **Flair** | ◐ | Shown as a chip on posts. Not yet filterable. |
 | **User profile feeds** | ◐ | Tapping an author shows their submitted posts; can't add `u/someone` as a standing source. |
 | **Logged-in Reddit** | ◐ | An app ID authenticates requests and sidesteps the blocking. A full user login (home feed, saved posts, subscriptions) is still missing. |
-| **Crossposts** | ✗ | Render as empty posts. |
+| **Crossposts** | ✓ | Content is taken from the original, with the source subreddit attributed. |
 | **Atom fallback is lossy** | ◐ | Still the last resort when unauthenticated and blocked — no score, comment count or self-text. Configuring an app ID avoids needing it. |
 
 ---
@@ -128,7 +128,7 @@ Closest comparison: Squawker; historically Tweetbot and Talon.
 | User timelines | ✓ | Via signed-in session. |
 | Stale-data detection | ✓ | Refuses to present a stale timeline as current. |
 | **Home timeline** | ✓ | A Twitter source can follow your own timeline instead of named accounts, when signed in. |
-| **Quote tweets** | ✗ | Quoted post not rendered. |
+| **Quote tweets** | ✓ | Rendered inline, as on Bluesky. |
 | **Conversation threads** | ✗ | `fetchThread` isn't implemented for X at all; replies are unavailable. |
 | **Search** | ✗ | |
 | **Lists** | ✗ | |
@@ -164,13 +164,13 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Full-screen image viewer** — tap to zoom, swipe a gallery, save. The most visible day-to-day rough edge now.
+1. **Full-screen image viewer** — tap to zoom, swipe a gallery, save. The most visible day-to-day rough edge, and now that galleries carry every image it matters more.
 2. **Search** — across the loaded feed first, which needs no new API work at all.
 3. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
 4. **Reddit "load more" comments** — deep threads are quietly cut off today.
 5. **Mark read by scrolling past** — the half of read-state that's still missing.
-6. **Quote posts** (Bluesky + X) — a quote with the quoted post missing can invert its meaning.
-7. **Link preview cards** — link posts currently show a bare URL.
-8. **Background refresh & notifications** — the last thing keeping Omni a foreground-only app.
+6. **Share sheet** — can copy a link, can't share to another app.
+7. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
+8. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
 9. **Video playback** — big lift, touches every network.
-10. **Polls** — Mastodon, Reddit and X all have them; all render as empty posts.
+10. **Custom emoji** — Mastodon `:shortcodes:` still render literally.

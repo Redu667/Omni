@@ -359,21 +359,15 @@ class RedditClient extends SourceClient {
   }
 
   FeedItem _toItem(Map<String, dynamic> post) {
-    final images = <MediaItem>[];
-    final preview = post['preview'] as Map<String, dynamic>?;
-    final previewImages = preview?['images'] as List?;
-    if (previewImages != null && previewImages.isNotEmpty) {
-      final url = ((previewImages.first as Map<String, dynamic>)['source']
-          as Map<String, dynamic>?)?['url'] as String?;
-      if (url != null) images.add(MediaItem(url: url));
-    } else {
-      final direct = post['url_overridden_by_dest'] as String? ?? '';
-      if (RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(direct)) {
-        images.add(MediaItem(url: direct));
-      }
-    }
+    // A crosspost carries its content on the original, not the wrapper,
+    // so an unresolved one renders as an empty post.
+    final crosspost = (post['crosspost_parent_list'] as List?)
+        ?.cast<Map<String, dynamic>>()
+        .firstOrNull;
+    final content = crosspost ?? post;
 
-    final selftext = post['selftext'] as String? ?? '';
+    final images = _imagesFrom(content);
+    final selftext = content['selftext'] as String? ?? '';
     final createdUtc = (post['created_utc'] as num?)?.toDouble() ?? 0;
 
     return FeedItem(
@@ -387,13 +381,71 @@ class RedditClient extends SourceClient {
       nativeId: post['permalink'] as String?,
       fullText: selftext.isNotEmpty ? selftext : null,
       sensitive: post['over_18'] as bool? ?? false,
+      flair: (post['link_flair_text'] as String?)?.trim().isNotEmpty == true
+          ? (post['link_flair_text'] as String).trim()
+          : null,
+      linkCard: _linkCardFrom(content),
       media: images,
       likes: post['ups'] as int?,
       replies: post['num_comments'] as int?,
+      repostedBy: crosspost == null
+          ? null
+          : 'crossposted from r/${crosspost['subreddit']}',
       context: 'r/${post['subreddit'] ?? source.params['subreddit']}',
       createdAt: DateTime.fromMillisecondsSinceEpoch(
           (createdUtc * 1000).round(),
           isUtc: true),
     );
   }
+
+  /// Gallery posts hold their images in media_metadata rather than preview,
+  /// so without this only one of several shows.
+  List<MediaItem> _imagesFrom(Map<String, dynamic> post) {
+    final images = <MediaItem>[];
+
+    final galleryItems = (post['gallery_data']
+            as Map<String, dynamic>?)?['items'] as List?;
+    final metadata = post['media_metadata'] as Map<String, dynamic>?;
+    if (galleryItems != null && metadata != null) {
+      for (final entry in galleryItems.cast<Map<String, dynamic>>()) {
+        final meta = metadata[entry['media_id']] as Map<String, dynamic>?;
+        final url = (meta?['s'] as Map<String, dynamic>?)?['u'] as String?;
+        if (url != null) {
+          images.add(MediaItem(
+            url: unescapeHtml(url),
+            alt: (entry['caption'] as String?)?.trim().isNotEmpty == true
+                ? entry['caption'] as String
+                : null,
+          ));
+        }
+      }
+      if (images.isNotEmpty) return images;
+    }
+
+    final preview = post['preview'] as Map<String, dynamic>?;
+    final previewImages = preview?['images'] as List?;
+    if (previewImages != null && previewImages.isNotEmpty) {
+      final url = ((previewImages.first as Map<String, dynamic>)['source']
+          as Map<String, dynamic>?)?['url'] as String?;
+      if (url != null) images.add(MediaItem(url: unescapeHtml(url)));
+    } else {
+      final direct = post['url_overridden_by_dest'] as String? ?? '';
+      if (RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(direct)) {
+        images.add(MediaItem(url: direct));
+      }
+    }
+    return images;
+  }
+
+  /// A link post points somewhere; showing where is the point of it.
+  static LinkCard? _linkCardFrom(Map<String, dynamic> post) {
+    final dest = post['url_overridden_by_dest'] as String?;
+    if (dest == null || !dest.startsWith('http')) return null;
+    // Reddit-hosted media isn't an outbound link worth carding.
+    if (RegExp(r'(redd\.it|reddit\.com)').hasMatch(dest)) return null;
+    if (RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(dest)) return null;
+
+    return LinkCard(url: dest, title: Uri.tryParse(dest)?.host);
+  }
+
 }

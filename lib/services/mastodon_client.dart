@@ -166,6 +166,8 @@ class MastodonClient extends SourceClient {
       text: htmlToPlainText(s['content'] as String? ?? ''),
       url: (s['url'] ?? s['uri']) as String?,
       nativeId: s['id'] as String?,
+      poll: _pollFrom(s['poll'] as Map<String, dynamic>?),
+      linkCard: _cardFrom(s['card'] as Map<String, dynamic>?),
       contentWarning: (s['spoiler_text'] as String?)?.trim().isNotEmpty == true
           ? (s['spoiler_text'] as String).trim()
           : null,
@@ -186,6 +188,39 @@ class MastodonClient extends SourceClient {
       createdAt:
           DateTime.tryParse(s['created_at'] as String? ?? '')?.toUtc() ??
               DateTime.now().toUtc(),
+    );
+  }
+
+  /// Poll posts carry their question in the body and their options here;
+  /// without this they render as a question with no answers.
+  static Poll? _pollFrom(Map<String, dynamic>? poll) {
+    if (poll == null) return null;
+    final options = (poll['options'] as List? ?? const [])
+        .cast<Map<String, dynamic>>();
+    if (options.isEmpty) return null;
+
+    return Poll(
+      options: [
+        for (final o in options)
+          PollOption(
+            title: o['title'] as String? ?? '',
+            votes: o['votes_count'] as int? ?? 0,
+          ),
+      ],
+      totalVotes: poll['votes_count'] as int? ?? 0,
+      expiresAt: DateTime.tryParse(poll['expires_at'] as String? ?? ''),
+      expired: poll['expired'] as bool? ?? false,
+    );
+  }
+
+  static LinkCard? _cardFrom(Map<String, dynamic>? card) {
+    final url = card?['url'] as String?;
+    if (card == null || url == null) return null;
+    return LinkCard(
+      url: url,
+      title: card['title'] as String?,
+      description: card['description'] as String?,
+      imageUrl: card['image'] as String?,
     );
   }
 
