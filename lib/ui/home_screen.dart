@@ -160,6 +160,7 @@ class _FeedState extends State<_Feed> {
 
   /// Identifies the list the indices belong to; a refresh shifts everything.
   String? _headId;
+  int _lastLength = 0;
 
   @override
   void initState() {
@@ -224,14 +225,17 @@ class _FeedState extends State<_Feed> {
     final state = widget.state;
     final items = state.items;
 
-    // A refresh puts new posts on top, so the indices no longer mean what
-    // they did and reading has to start over from the top.
+    // Indices only mean something while the list holds still. A refresh puts
+    // new posts on top, and hiding a read post pulls one out of the middle —
+    // either way what index 12 refers to has changed, so reading starts over.
+    // Loading another page only appends, which is why growth is allowed.
     final head = items.firstOrNull?.id;
-    if (head != _headId) {
+    if (head != _headId || items.length < _lastLength) {
       _headId = head;
       _readUpTo = -1;
       _itemKeys.clear();
     }
+    _lastLength = items.length;
 
     return RefreshIndicator(
       onRefresh: () => state.refresh(force: true),
