@@ -11,6 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.32.8'
@@ -25,3 +30,11 @@ jobs:
 
       - name: Test
         run: flutter test
+
+      # Analyze and test never touch Gradle, so a plugin whose build script
+      # is incompatible with this project's Kotlin toolchain sails through
+      # both and only fails when a release is cut. Building the APK here
+      # runs the same command the release does, so a green PR means a
+      # releasable one.
+      - name: Build APK
+        run: flutter build apk --release
