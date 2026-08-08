@@ -8,6 +8,7 @@ import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../services/thread_folding.dart';
 import '../state/app_state.dart';
+import 'emoji_text.dart';
 import 'image_viewer_screen.dart';
 import 'post_actions.dart';
 import 'post_extras.dart';
@@ -436,10 +437,18 @@ class _PostBodyState extends State<_PostBody> {
           if (item.body.isNotEmpty && !hidden)
             Padding(
               padding: const EdgeInsets.only(top: 12),
-              child: SelectableText(
-                item.body,
-                style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
-              ),
+              child: item.emojis.isEmpty
+                  ? SelectableText(
+                      item.body,
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+                    )
+                  // Custom emoji need inline images, which selectable text
+                  // can't carry — the pictures matter more here.
+                  : EmojiText(
+                      item.body,
+                      emojis: item.emojis,
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+                    ),
             ),
           if (item.imageUrls.isNotEmpty && !hidden)
             Padding(
@@ -754,9 +763,11 @@ class _ReplyTile extends StatelessWidget {
                     ),
                   ),
                 Flexible(
-                  child: Text(
+                  child: EmojiText(
                     item.handle ?? item.author,
+                    emojis: item.emojis,
                     style: theme.textTheme.labelLarge,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -789,8 +800,11 @@ class _ReplyTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             )
+          else if (item.emojis.isEmpty)
+            SelectableText(item.text, style: theme.textTheme.bodyMedium)
           else
-            SelectableText(item.text, style: theme.textTheme.bodyMedium),
+            EmojiText(item.text,
+                emojis: item.emojis, style: theme.textTheme.bodyMedium),
           if (item.likes != null && !collapsed)
             Padding(
               padding: const EdgeInsets.only(top: 6),

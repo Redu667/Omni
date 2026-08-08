@@ -119,6 +119,7 @@ class FeedItem {
     this.linkCard,
     this.poll,
     this.flair,
+    this.emojis = const {},
   });
 
   /// Globally unique: `sourceId:nativeId`.
@@ -186,6 +187,12 @@ class FeedItem {
   /// Reddit's post flair, which is how many subreddits organise themselves.
   final String? flair;
 
+  /// Custom emoji available to this post, as `shortcode` to image URL.
+  ///
+  /// Mastodon instances define their own, and a post written with them
+  /// reads as `:blobcat:` nonsense without the pictures.
+  final Map<String, String> emojis;
+
   final DateTime createdAt;
 
   /// What the detail view should render as the post body.
@@ -217,6 +224,7 @@ class FeedItem {
         'linkCard': linkCard?.toJson(),
         'poll': poll?.toJson(),
         'flair': flair,
+        if (emojis.isNotEmpty) 'emojis': emojis,
         'createdAt': createdAt.toIso8601String(),
       };
 
@@ -257,6 +265,8 @@ class FeedItem {
             ? null
             : Poll.fromJson((json['poll'] as Map).cast<String, dynamic>()),
         flair: json['flair'] as String?,
+        emojis: ((json['emojis'] as Map?) ?? const {})
+            .map((k, v) => MapEntry(k as String, v as String)),
         createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '')
                 ?.toUtc() ??
             DateTime.now().toUtc(),

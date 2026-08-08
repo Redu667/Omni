@@ -202,6 +202,17 @@ class MastodonClient extends SourceClient {
         .toList(growable: false);
   }
 
+  /// Mastodon sends custom emoji as a list of `{shortcode, url}`; the UI
+  /// wants to look them up by code.
+  static Map<String, String> _emojiMap(Object? raw) {
+    if (raw is! List) return const {};
+    return {
+      for (final e in raw.whereType<Map<String, dynamic>>())
+        if (e['shortcode'] is String && e['url'] is String)
+          e['shortcode'] as String: e['url'] as String,
+    };
+  }
+
   FeedItem _toItem(Map<String, dynamic> status) {
     String? repostedBy;
     var s = status;
@@ -239,6 +250,12 @@ class MastodonClient extends SourceClient {
             ),
       ],
       repostedBy: repostedBy,
+      // Both the post and the author can use custom emoji, and the author's
+      // are what make a display name render as intended.
+      emojis: {
+        ..._emojiMap(account['emojis']),
+        ..._emojiMap(s['emojis']),
+      },
       likes: s['favourites_count'] as int?,
       reposts: s['reblogs_count'] as int?,
       replies: s['replies_count'] as int?,

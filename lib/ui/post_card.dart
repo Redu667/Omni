@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
+import 'emoji_text.dart';
 import 'image_viewer_screen.dart';
 import 'post_actions.dart';
 import 'post_extras.dart';
@@ -90,8 +91,9 @@ class _PostCardState extends State<PostCard> {
               if (item.title != null && item.title!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Text(
+                  child: EmojiText(
                     item.title!,
+                    emojis: item.emojis,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -113,8 +115,9 @@ class _PostCardState extends State<PostCard> {
               if (item.text.isNotEmpty && (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text(
+                  child: EmojiText(
                     item.text,
+                    emojis: item.emojis,
                     style: theme.textTheme.bodyMedium,
                     maxLines: 12,
                     overflow: TextOverflow.ellipsis,
@@ -235,9 +238,11 @@ class _Header extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                EmojiText(
                   item.author,
+                  emojis: item.emojis,
                   style: theme.textTheme.titleSmall,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(

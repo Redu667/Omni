@@ -62,7 +62,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | Content warnings | ✓ | |
 | **Thread parent context** | ✓ | Ancestors are shown above the post, tappable to walk up the conversation. |
 | **Polls** | ✓ | Options and vote shares shown. Read-only — Omni doesn't vote. |
-| **Custom emoji** | ✗ | `:shortcodes:` show as literal text instead of the instance's emoji. |
+| **Custom emoji** | ✓ | Instance emoji render inline in post bodies, titles, display names and replies, sized to the line. Only shortcodes the post declares are substituted, so `10:30` stays a time. An emoji that won't load falls back to the code it stands for. |
 | **Interactions** | ✗ | No favourite, boost, reply, or follow. Omni is read-only by design, but favouriting is the one most readers expect. |
 | **Notifications timeline** | ✗ | No mentions, follows, or replies view. |
 | **Lists & hashtag timelines** | ✓ | Hashtag timelines need no account and can be scoped to one instance; lists are offered by name after signing in, rather than by numeric id. |
@@ -166,6 +166,6 @@ Ordered by value-per-effort rather than by how impressive they sound.
 
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
 2. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
-3. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
-4. **Video playback** — big lift, touches every network.
-5. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
+3. **Video playback** — big lift, touches every network.
+4. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
+5. **Mastodon bookmarks & favourites** — your own saved posts on the instance aren't readable.
