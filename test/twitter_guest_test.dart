@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:omni/models/feed_item.dart';
 import 'package:omni/models/feed_source.dart';
 import 'package:omni/models/network.dart';
 import 'package:omni/services/source_client.dart';
@@ -143,6 +144,7 @@ MockClient guestMock({
 }
 
 void main() {
+  _videoTests();
   group('parseTwitterDate', () {
     test('parses X\'s month-first format', () {
       expect(parseTwitterDate('Wed Aug 05 20:15:00 +0000 2026'),
@@ -708,6 +710,129 @@ void main() {
     test('ships valid default feature flags', () {
       expect(TwitterGuestConfig.defaults.featuresJsonIsValid, isTrue);
       expect(TwitterGuestConfig.defaults.features, isNotEmpty);
+    });
+  });
+}
+
+/// X video parsing lives here rather than in video_test.dart because it
+/// needs this file's guest-token scaffolding.
+void _videoTests() {
+  Future<List<dynamic>> fetch(MockClient client) => TwitterGuestClient(
+        twitterSource(),
+        client,
+        config: TwitterGuestConfig.defaults,
+        session: TwitterGuestSession(),
+      ).fetchLatest();
+
+  Map<String, dynamic> withMedia(List<Map<String, dynamic>> media) =>
+      timelineBody([
+        tweetEntry(
+          id: '1',
+          text: 'watch this',
+          extraLegacy: {
+            'extended_entities': {'media': media},
+          },
+        ),
+      ]);
+
+  group('X video', () {
+    test('takes the highest-bitrate MP4, not the first variant', () async {
+      final items = await fetch(guestMock(
+        timeline: withMedia([
+          {
+            'type': 'video',
+            'media_url_https': 'https://pbs.twimg.com/poster.jpg',
+            'ext_alt_text': 'a rocket',
+            'video_info': {
+              'duration_millis': 45600,
+              'variants': [
+                {
+                  'content_type': 'application/x-mpegURL',
+                  'url': 'https://video.twimg.com/hls.m3u8',
+                },
+                {
+                  'content_type': 'video/mp4',
+                  'bitrate': 632000,
+                  'url': 'https://video.twimg.com/low.mp4',
+                },
+                {
+                  'content_type': 'video/mp4',
+                  'bitrate': 2176000,
+                  'url': 'https://video.twimg.com/high.mp4',
+                },
+              ],
+            },
+          },
+        ]),
+      ));
+
+      final media = items.single.media.single;
+      expect(media.url, 'https://video.twimg.com/high.mp4');
+      expect(media.kind, MediaKind.video);
+      expect(media.thumbnailUrl, 'https://pbs.twimg.com/poster.jpg');
+      expect(media.alt, 'a rocket');
+      expect(media.durationSeconds, 46);
+    });
+
+    test('an animated GIF is a gif', () async {
+      final items = await fetch(guestMock(
+        timeline: withMedia([
+          {
+            'type': 'animated_gif',
+            'media_url_https': 'https://pbs.twimg.com/g.jpg',
+            'video_info': {
+              'variants': [
+                {
+                  'content_type': 'video/mp4',
+                  'bitrate': 0,
+                  'url': 'https://video.twimg.com/g.mp4',
+                },
+              ],
+            },
+          },
+        ]),
+      ));
+
+      expect(items.single.media.single.kind, MediaKind.gif);
+    });
+
+    test('a video with no playable variant falls back to its poster',
+        () async {
+      final items = await fetch(guestMock(
+        timeline: withMedia([
+          {
+            'type': 'video',
+            'media_url_https': 'https://pbs.twimg.com/poster.jpg',
+            'video_info': {
+              'variants': [
+                {
+                  'content_type': 'application/x-mpegURL',
+                  'url': 'https://video.twimg.com/hls.m3u8',
+                },
+              ],
+            },
+          },
+        ]),
+      ));
+
+      final media = items.single.media.single;
+      expect(media.kind, MediaKind.image);
+      expect(media.url, 'https://pbs.twimg.com/poster.jpg');
+    });
+
+    test('photos are unaffected', () async {
+      final items = await fetch(guestMock(
+        timeline: withMedia([
+          {
+            'type': 'photo',
+            'media_url_https': 'https://pbs.twimg.com/p.jpg',
+            'ext_alt_text': 'a photo',
+          },
+        ]),
+      ));
+
+      expect(items.single.media.single.kind, MediaKind.image);
+      expect(items.single.media.single.alt, 'a photo');
     });
   });
 }

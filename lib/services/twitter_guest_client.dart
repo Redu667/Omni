@@ -447,11 +447,7 @@ class TwitterGuestClient extends SourceClient {
       nativeId: restId ?? legacy['id_str'] as String?,
       media: [
         for (final m in media)
-          if (m['media_url_https'] != null)
-            MediaItem(
-              url: m['media_url_https'] as String,
-              alt: m['ext_alt_text'] as String?,
-            ),
+          if (_mediaFrom(m) case final attachment?) attachment,
       ],
       quoted: quoted,
       repostedBy: repostedBy,
@@ -462,6 +458,43 @@ class TwitterGuestClient extends SourceClient {
       createdAt: parseTwitterDate(legacy['created_at'] as String?) ??
           DateTime.now().toUtc(),
     );
+  }
+
+  /// One attachment. `photo`, `video` or `animated_gif` — the last two were
+  /// dropped before, turning a video tweet into a bare line of text.
+  static MediaItem? _mediaFrom(Map<String, dynamic> m) {
+    final poster = m['media_url_https'] as String?;
+    final alt = m['ext_alt_text'] as String?;
+    final type = m['type'] as String?;
+
+    if (type == 'video' || type == 'animated_gif') {
+      final url = _bestVariant(m);
+      if (url != null) {
+        final millis = _dig(m, ['video_info', 'duration_millis']) as num?;
+        return MediaItem(
+          url: url,
+          alt: alt,
+          kind: type == 'video' ? MediaKind.video : MediaKind.gif,
+          thumbnailUrl: poster,
+          durationSeconds: millis == null ? null : (millis / 1000).round(),
+        );
+      }
+    }
+    return poster == null ? null : MediaItem(url: poster, alt: alt);
+  }
+
+  /// X offers several encodings; take the highest-bitrate progressive MP4,
+  /// since the HLS variant carries no bitrate to compare and is often
+  /// account-gated.
+  static String? _bestVariant(Map<String, dynamic> m) {
+    final variants =
+        (_dig(m, ['video_info', 'variants']) as List? ?? const [])
+            .cast<Map<String, dynamic>>()
+            .where((v) => v['content_type'] == 'video/mp4')
+            .toList()
+      ..sort((a, b) => ((b['bitrate'] as num?) ?? 0)
+          .compareTo((a['bitrate'] as num?) ?? 0));
+    return variants.firstOrNull?['url'] as String?;
   }
 
   /// X nests the quoted tweet under quoted_status_result.

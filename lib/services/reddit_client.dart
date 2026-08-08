@@ -536,6 +536,11 @@ class RedditClient extends SourceClient {
   List<MediaItem> _imagesFrom(Map<String, dynamic> post) {
     final images = <MediaItem>[];
 
+    // A v.redd.it post's preview image is just its poster frame, so the
+    // video has to be checked for first or the post reads as a still.
+    final video = _videoFrom(post);
+    if (video != null) return [video];
+
     final galleryItems = (post['gallery_data']
             as Map<String, dynamic>?)?['items'] as List?;
     final metadata = post['media_metadata'] as Map<String, dynamic>?;
@@ -568,6 +573,45 @@ class RedditClient extends SourceClient {
       }
     }
     return images;
+  }
+
+  /// Reddit-hosted video, which was previously dropped entirely — a
+  /// v.redd.it post arrived as a title and a still frame.
+  ///
+  /// Prefers the HLS playlist: `fallback_url` is video-only, so playing it
+  /// gives a silent clip, which is worse than an obvious failure.
+  static MediaItem? _videoFrom(Map<String, dynamic> post) {
+    final reddit = (post['secure_media'] as Map<String, dynamic>?)?[
+            'reddit_video'] as Map<String, dynamic>? ??
+        (post['media'] as Map<String, dynamic>?)?['reddit_video']
+            as Map<String, dynamic>? ??
+        (post['preview'] as Map<String, dynamic>?)?['reddit_video_preview']
+            as Map<String, dynamic>?;
+    if (reddit == null) return null;
+
+    final url = (reddit['hls_url'] ?? reddit['fallback_url']) as String?;
+    if (url == null) return null;
+
+    // A converted GIF has no audio track to miss, so the silent fallback is
+    // exactly right for it.
+    final isGif = reddit['is_gif'] == true;
+
+    return MediaItem(
+      url: unescapeHtml(url),
+      kind: isGif ? MediaKind.gif : MediaKind.video,
+      thumbnailUrl: _previewUrlOf(post),
+      durationSeconds: (reddit['duration'] as num?)?.round(),
+    );
+  }
+
+  static String? _previewUrlOf(Map<String, dynamic> post) {
+    final images = (post['preview'] as Map<String, dynamic>?)?['images']
+        as List?;
+    final url = images == null || images.isEmpty
+        ? null
+        : ((images.first as Map<String, dynamic>)['source']
+            as Map<String, dynamic>?)?['url'] as String?;
+    return url == null ? null : unescapeHtml(url);
   }
 
   /// A link post points somewhere; showing where is the point of it.

@@ -13,6 +13,7 @@ import 'image_viewer_screen.dart';
 import 'post_actions.dart';
 import 'post_extras.dart';
 import 'post_view_screen.dart';
+import 'video_player_screen.dart';
 import 'profile_screen.dart';
 
 /// Renders a post with Flutter widgets — same visual language as the
@@ -463,31 +464,46 @@ class _PostBodyState extends State<_PostBody> {
                         children: [
                           GestureDetector(
                             // Opens the picture full-screen, where it can be
-                            // zoomed — inline it's capped to the column width.
+                            // zoomed — inline it's capped to the column
+                            // width. A video goes straight to the player.
                             onTap: () =>
                                 Navigator.of(context).push(MaterialPageRoute(
-                              builder: (_) => ImageViewerScreen(
-                                media: item.media,
-                                initialIndex: index,
-                              ),
+                              builder: (_) => image.kind.isVideo
+                                  ? VideoPlayerScreen(media: image)
+                                  : ImageViewerScreen(
+                                      media: item.media,
+                                      initialIndex: index,
+                                    ),
                             )),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(12),
-                              child: Semantics(
-                                label: image.alt,
-                                image: true,
-                                child: CachedNetworkImage(
-                                  imageUrl: image.url,
-                                  fit: BoxFit.contain,
-                                  width: double.infinity,
-                                  placeholder: (_, _) => Container(
-                                    height: 180,
-                                    color: theme
-                                        .colorScheme.surfaceContainerHighest,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Semantics(
+                                    label: image.alt,
+                                    image: true,
+                                    child: CachedNetworkImage(
+                                      imageUrl: image.previewUrl,
+                                      fit: BoxFit.contain,
+                                      width: double.infinity,
+                                      placeholder: (_, _) => Container(
+                                        height: 180,
+                                        color: theme.colorScheme
+                                            .surfaceContainerHighest,
+                                      ),
+                                      errorWidget: (_, _, _) =>
+                                          const SizedBox.shrink(),
+                                    ),
                                   ),
-                                  errorWidget: (_, _, _) =>
-                                      const SizedBox.shrink(),
-                                ),
+                                  if (image.kind.isVideo)
+                                    const CircleAvatar(
+                                      radius: 28,
+                                      backgroundColor: Colors.black54,
+                                      child: Icon(Icons.play_arrow,
+                                          size: 36, color: Colors.white),
+                                    ),
+                                ],
                               ),
                             ),
                           ),

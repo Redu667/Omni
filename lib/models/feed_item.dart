@@ -1,23 +1,69 @@
 import 'network.dart';
 
-/// An image attached to a post, with the author's description of it.
+enum MediaKind {
+  image,
+
+  /// Plays with sound and controls.
+  video,
+
+  /// A silent looping clip — Mastodon `gifv`, X `animated_gif`, Reddit's
+  /// converted GIFs. Presented as a moving image rather than as a video.
+  gif;
+
+  bool get isVideo => this != MediaKind.image;
+
+  static MediaKind fromName(String? name) => switch (name) {
+        'video' => MediaKind.video,
+        'gif' => MediaKind.gif,
+        _ => MediaKind.image,
+      };
+}
+
+/// Something attached to a post, with the author's description of it.
 ///
 /// Alt text is carried rather than discarded: Mastodon and Bluesky both have
 /// strong alt-text cultures, and dropping it makes posts unreadable to
 /// anyone using a screen reader.
 class MediaItem {
-  const MediaItem({required this.url, this.alt});
+  const MediaItem({
+    required this.url,
+    this.alt,
+    this.kind = MediaKind.image,
+    this.thumbnailUrl,
+    this.durationSeconds,
+  });
 
+  /// The image itself, or the stream to play.
   final String url;
   final String? alt;
+  final MediaKind kind;
+
+  /// What to show before a video plays. Videos without one fall back to a
+  /// placeholder rather than a blank rectangle.
+  final String? thumbnailUrl;
+
+  final int? durationSeconds;
 
   bool get hasAlt => alt != null && alt!.trim().isNotEmpty;
 
-  Map<String, dynamic> toJson() => {'url': url, 'alt': alt};
+  /// What the timeline should show for this item: a video's poster frame,
+  /// or the image itself.
+  String get previewUrl => thumbnailUrl ?? url;
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'alt': alt,
+        if (kind != MediaKind.image) 'kind': kind.name,
+        if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
+        if (durationSeconds != null) 'durationSeconds': durationSeconds,
+      };
 
   factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
         url: json['url'] as String,
         alt: json['alt'] as String?,
+        kind: MediaKind.fromName(json['kind'] as String?),
+        thumbnailUrl: json['thumbnailUrl'] as String?,
+        durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
       );
 }
 
@@ -143,7 +189,11 @@ class FeedItem {
   final List<MediaItem> media;
 
   /// Just the URLs, for the many places that only need those.
-  List<String> get imageUrls => [for (final m in media) m.url];
+  /// What the timeline can show as a still: a video's poster frame stands in
+  /// for the video itself.
+  List<String> get imageUrls => [for (final m in media) m.previewUrl];
+
+  bool get hasVideo => media.any((m) => m.kind.isVideo);
 
   /// Who boosted/reposted this into the timeline, if anyone.
   final String? repostedBy;

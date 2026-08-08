@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_item.dart';
+import 'video_player_screen.dart';
 
 /// Full-screen images: pinch to zoom, drag to pan, swipe between them.
 ///
@@ -68,7 +69,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.open_in_browser),
-            tooltip: 'Open image in browser',
+            tooltip: 'Open in browser',
             onPressed: () => launchUrl(Uri.parse(current.url),
                 mode: LaunchMode.externalApplication),
           ),
@@ -89,20 +90,30 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             },
             itemCount: widget.media.length,
             itemBuilder: (_, i) => InteractiveViewer(
-              transformationController: i == _index ? _zoom : null,
+              // Zooming a video's poster frame would be a lie about what's
+              // on screen, so only images pan and scale.
+              transformationController:
+                  i == _index && !widget.media[i].kind.isVideo ? _zoom : null,
               minScale: 1,
-              maxScale: 5,
+              maxScale: widget.media[i].kind.isVideo ? 1 : 5,
               child: Center(
-                child: CachedNetworkImage(
-                  imageUrl: widget.media[i].url,
-                  fit: BoxFit.contain,
-                  placeholder: (_, _) => const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
-                  ),
-                  errorWidget: (_, _, _) => const Center(
-                    child: Icon(Icons.broken_image_outlined,
-                        color: Colors.white54, size: 48),
-                  ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CachedNetworkImage(
+                      imageUrl: widget.media[i].previewUrl,
+                      fit: BoxFit.contain,
+                      placeholder: (_, _) => const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                      errorWidget: (_, _, _) => const Center(
+                        child: Icon(Icons.broken_image_outlined,
+                            color: Colors.white54, size: 48),
+                      ),
+                    ),
+                    if (widget.media[i].kind.isVideo)
+                      _PlayButton(media: widget.media[i]),
+                  ],
                 ),
               ),
             ),
@@ -125,6 +136,31 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Sits over a video's poster frame in the gallery.
+class _PlayButton extends StatelessWidget {
+  const _PlayButton({required this.media});
+
+  final MediaItem media;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.5),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => VideoPlayerScreen(media: media)),
+        ),
+        child: const Padding(
+          padding: EdgeInsets.all(16),
+          child: Icon(Icons.play_arrow, size: 44, color: Colors.white),
+        ),
       ),
     );
   }

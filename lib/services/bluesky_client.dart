@@ -316,6 +316,23 @@ class BlueskyClient extends SourceClient {
     );
   }
 
+  /// A `app.bsky.embed.video#view`, which carries an HLS playlist rather
+  /// than a plain file.
+  static MediaItem? _videoFrom(Map<String, dynamic>? embed) {
+    if (embed == null) return null;
+    if (!(embed[r'$type'] as String? ?? '').contains('embed.video')) return null;
+
+    final playlist = embed['playlist'] as String?;
+    if (playlist == null) return null;
+
+    return MediaItem(
+      url: playlist,
+      alt: embed['alt'] as String?,
+      kind: MediaKind.video,
+      thumbnailUrl: embed['thumbnail'] as String?,
+    );
+  }
+
   static LinkCard? _linkCardFrom(Map<String, dynamic>? embed) {
     if (embed == null) return null;
     final external = (embed['external'] ??
@@ -349,8 +366,8 @@ class BlueskyClient extends SourceClient {
     final images = <MediaItem>[];
     final embed = post['embed'] as Map<String, dynamic>?;
     if (embed != null) {
-      final list = (embed['images'] ??
-          (embed['media'] as Map<String, dynamic>?)?['images']) as List?;
+      final media = embed['media'] as Map<String, dynamic>?;
+      final list = (embed['images'] ?? media?['images']) as List?;
       for (final img in list ?? const []) {
         final image = img as Map<String, dynamic>;
         final thumb = image['thumb'] as String?;
@@ -358,6 +375,11 @@ class BlueskyClient extends SourceClient {
           images.add(MediaItem(url: thumb, alt: image['alt'] as String?));
         }
       }
+
+      // Bluesky serves video as an HLS playlist, which ExoPlayer handles.
+      // Either at the top level, or nested under recordWithMedia.
+      final video = _videoFrom(embed) ?? _videoFrom(media);
+      if (video != null) images.add(video);
     }
 
     // A quote with the quoted post missing reads as bare commentary, which

@@ -37,7 +37,7 @@ whether Omni is usable as a daily reader at all.
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
 | **Search** | ◐ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip. Not yet: querying each network's own search API for posts you haven't loaded. |
 | **Image viewer** | ◐ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture. Not yet: saving to the device. |
-| **Video** | ✗ | No playback anywhere. Reddit `v.redd.it`, Mastodon and Bluesky video, and X video are all silently dropped. |
+| **Video** | ✓ | Plays in-app on all four networks that have it — Mastodon video and `gifv`, Bluesky's HLS embeds, Reddit `v.redd.it`, and X video and animated GIFs. Timeline shows the poster frame with a play badge and the running time; GIFs loop silently, everything else plays once with sound. |
 | **Alt text** | ✓ | Carried from Mastodon, Bluesky and X, shown under each image in the detail view, exposed to screen readers, and flagged with an ALT badge in the timeline. |
 | **Link preview cards** | ✓ | Mastodon cards, Bluesky external embeds and Reddit outbound links render as tappable cards. |
 | **Share sheet** | ✓ | Long-press a post to hand its link to Android's share sheet, or copy it. |
@@ -90,7 +90,7 @@ Closest comparison: the official app, Graysky, deck.blue.
 | **Thread parent context** | ✓ | The parent chain is walked and shown oldest-first. |
 | **Interactions** | ✗ | No like, repost, reply, or follow. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
-| **Video** | ✗ | |
+| **Video** | ✓ | HLS embeds play, including when nested under `recordWithMedia`. |
 | **Session reuse** | ✓ | One sign-in serves every Bluesky source and survives between refreshes; the token is renewed with the refresh token rather than the password, and a rejected token triggers one fresh sign-in and a retry instead of a visible failure. |
 
 ---
@@ -109,7 +109,7 @@ Closest comparison: Infinity, RedReader, Boost.
 | **Collapse comment threads** | ✓ | Tap a comment's header to fold it and everything under it, with a count of what's hidden. The body isn't the handle — selecting text there would fold the comment out from under you. |
 | **Load more comments** | ✓ | "N more replies" loads in place, at the right indentation, both at the top level and under a specific comment. Reddit's 100-per-request cap is handled by leaving the remainder behind the next button. "Continue this thread" stubs, which carry nothing to request, aren't offered. |
 | **Galleries** | ✓ | Every image of a gallery is carried, with captions as alt text. |
-| **Video** | ✗ | `v.redd.it` unsupported. |
+| **Video** | ✓ | `v.redd.it` plays via its HLS stream. The `fallback_url` is video-only, so it's the last resort — a silent clip is worse than an obvious failure — except for converted GIFs, which have no audio to lose. |
 | **Polls** | ✗ | |
 | **Flair** | ◐ | Shown as a chip on posts. Not yet filterable. |
 | **User profile feeds** | ◐ | Tapping an author shows their submitted posts; can't add `u/someone` as a standing source. |
@@ -134,7 +134,7 @@ Closest comparison: Squawker; historically Tweetbot and Talon.
 | **Lists** | ✗ | |
 | **Bookmarks** | ✗ | |
 | **Polls** | ✗ | |
-| **Video** | ✗ | |
+| **Video** | ✓ | The highest-bitrate MP4 variant, since the HLS one carries no bitrate to compare and is often account-gated. |
 | **Interactions** | ✗ | No like, repost, or reply. |
 | **Fragility** | ◐ | Every query ID is user-editable — including the home timeline and TweetDetail ones, which were previously reset to defaults whenever the screen was saved. Still no automatic detection or self-updating. |
 
@@ -166,6 +166,6 @@ Ordered by value-per-effort rather than by how impressive they sound.
 
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
 2. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
-3. **Video playback** — big lift, touches every network.
-4. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
-5. **Mastodon bookmarks & favourites** — your own saved posts on the instance aren't readable.
+3. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
+4. **Mastodon bookmarks & favourites** — your own saved posts on the instance aren't readable.
+5. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.

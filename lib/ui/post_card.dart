@@ -10,6 +10,7 @@ import '../state/app_state.dart';
 import 'emoji_text.dart';
 import 'image_viewer_screen.dart';
 import 'post_actions.dart';
+import 'video_player_screen.dart';
 import 'post_extras.dart';
 import 'post_detail_screen.dart';
 import 'profile_screen.dart';
@@ -130,7 +131,11 @@ class _PostCardState extends State<PostCard> {
                     // Tapping the picture means "look at the picture"; the
                     // rest of the card still opens the post.
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => ImageViewerScreen(media: item.media),
+                      builder: (_) => item.media.first.kind.isVideo
+                          // One tap to watch, rather than a gallery with a
+                          // single frame in it.
+                          ? VideoPlayerScreen(media: item.media.first)
+                          : ImageViewerScreen(media: item.media),
                     )),
                     child: Stack(
                     children: [
@@ -165,6 +170,12 @@ class _PostCardState extends State<PostCard> {
                           left: 8,
                           bottom: 8,
                           child: _Chip(label: 'ALT', theme: theme),
+                        ),
+                      if (item.media.first.kind.isVideo)
+                        Positioned.fill(
+                          child: Center(
+                            child: _PlayBadge(media: item.media.first),
+                          ),
                         ),
                     ],
                     ),
@@ -390,6 +401,50 @@ class _Chip extends StatelessWidget {
         label,
         style: theme.textTheme.labelSmall
             ?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+/// Marks a timeline image as a video, with how long it runs.
+class _PlayBadge extends StatelessWidget {
+  const _PlayBadge({required this.media});
+
+  final MediaItem media;
+
+  static String _duration(int seconds) {
+    final minutes = seconds ~/ 60;
+    return '$minutes:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seconds = media.durationSeconds;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+          horizontal: seconds == null ? 12 : 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            media.kind == MediaKind.gif ? Icons.gif_box_outlined : Icons.play_arrow,
+            color: Colors.white,
+            size: 26,
+          ),
+          if (seconds != null && seconds > 0) ...[
+            const SizedBox(width: 6),
+            Text(
+              _duration(seconds),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ],
       ),
     );
   }

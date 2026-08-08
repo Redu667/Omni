@@ -213,6 +213,38 @@ class MastodonClient extends SourceClient {
     };
   }
 
+  /// Mastodon attachments are `image`, `video`, `gifv` (a silent looping
+  /// clip) or `audio`. Video was previously dropped outright, which quietly
+  /// turned a video post into an empty one.
+  static MediaItem? _mediaFrom(Map<String, dynamic> m) {
+    final type = m['type'] as String?;
+    final alt = m['description'] as String?;
+    final preview = m['preview_url'] as String?;
+    final url = m['url'] as String?;
+
+    return switch (type) {
+      'image' when preview != null => MediaItem(url: preview, alt: alt),
+      'video' || 'gifv' when url != null => MediaItem(
+          url: url,
+          alt: alt,
+          kind: type == 'gifv' ? MediaKind.gif : MediaKind.video,
+          thumbnailUrl: preview,
+          durationSeconds:
+              (_dig(m, ['meta', 'original', 'duration']) as num?)?.round(),
+        ),
+      _ => null,
+    };
+  }
+
+  static Object? _dig(Map<String, dynamic> from, List<String> path) {
+    Object? node = from;
+    for (final key in path) {
+      if (node is! Map) return null;
+      node = node[key];
+    }
+    return node;
+  }
+
   FeedItem _toItem(Map<String, dynamic> status) {
     String? repostedBy;
     var s = status;
@@ -243,11 +275,7 @@ class MastodonClient extends SourceClient {
       sensitive: s['sensitive'] as bool? ?? false,
       media: [
         for (final m in media)
-          if (m['type'] == 'image' && m['preview_url'] != null)
-            MediaItem(
-              url: m['preview_url'] as String,
-              alt: m['description'] as String?,
-            ),
+          if (_mediaFrom(m) case final attachment?) attachment,
       ],
       repostedBy: repostedBy,
       // Both the post and the author can use custom emoji, and the author's
