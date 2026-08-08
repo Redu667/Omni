@@ -13,7 +13,7 @@ class TwitterClient extends SourceClient {
   const TwitterClient(super.source, super.httpClient);
 
   @override
-  Future<List<FeedItem>> fetchLatest({int limit = 40}) async {
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
     final bearer = source.params['bearerToken'];
     if (bearer == null || bearer.isEmpty) {
       throw SourceFetchException(source.displayName, 'no bearer token set');
@@ -31,6 +31,7 @@ class TwitterClient extends SourceClient {
     final uri = Uri.https('api.x.com', '/2/tweets/search/recent', {
       'query': '($query) -is:retweet',
       'max_results': '${limit.clamp(10, 100)}',
+      if (cursor != null) 'next_token': cursor,
       'tweet.fields': 'created_at,public_metrics,attachments',
       'expansions': 'author_id,attachments.media_keys',
       'user.fields': 'name,username,profile_image_url',
@@ -61,9 +62,13 @@ class TwitterClient extends SourceClient {
         (m as Map<String, dynamic>)['media_key'] as String: m,
     };
 
-    return tweets
-        .map((t) => _toItem(t as Map<String, dynamic>, users, media))
-        .toList(growable: false);
+    final meta = body['meta'] as Map<String, dynamic>? ?? const {};
+    return SourcePage(
+      items: tweets
+          .map((t) => _toItem(t as Map<String, dynamic>, users, media))
+          .toList(growable: false),
+      nextCursor: tweets.isEmpty ? null : meta['next_token'] as String?,
+    );
   }
 
   FeedItem _toItem(

@@ -28,7 +28,7 @@ class RedditClient extends SourceClient {
   };
 
   @override
-  Future<List<FeedItem>> fetchLatest({int limit = 40}) async {
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
     final subreddit = source.params['subreddit']!.replaceAll(RegExp(r'^/?r/'), '');
     final sort = source.params['sort'] ?? 'hot';
 
@@ -39,8 +39,11 @@ class RedditClient extends SourceClient {
 
     for (final host in _hosts) {
       final res = await httpClient.get(
-        Uri.https(host, '/r/$subreddit/$sort.json',
-            {'limit': '$limit', 'raw_json': '1'}),
+        Uri.https(host, '/r/$subreddit/$sort.json', {
+          'limit': '$limit',
+          'raw_json': '1',
+          if (cursor != null) 'after': cursor,
+        }),
         headers: _headers,
       );
       lastStatus = res.statusCode;
@@ -68,8 +71,10 @@ class RedditClient extends SourceClient {
     // still served openly, so fall back to those rather than failing —
     // fewer fields, but a working feed.
     if (blocked) {
+      // Atom has no paging, so a second page never has anything to add.
+      if (cursor != null) return const SourcePage.last([]);
       final viaRss = await _fetchViaRss(subreddit, sort, limit);
-      if (viaRss != null) return viaRss;
+      if (viaRss != null) return SourcePage.last(viaRss);
     }
 
     throw SourceFetchException(
@@ -187,7 +192,7 @@ class RedditClient extends SourceClient {
       );
       if (res.statusCode != 200) continue;
       final parsed = _tryParse(res);
-      if (parsed != null) return parsed;
+      if (parsed != null) return parsed.items;
     }
     throw SourceFetchException(
         source.displayName, 'Reddit would not serve u/$user right now.');
@@ -283,7 +288,7 @@ class RedditClient extends SourceClient {
   /// Returns null when the body isn't a Reddit listing — an HTML block page,
   /// or Reddit's `{"error": 403}` JSON. Callers treat that as blocked rather
   /// than letting a decode error escape to the user.
-  List<FeedItem>? _tryParse(http.Response res) {
+  SourcePage? _tryParse(http.Response res) {
     final Object? decoded;
     try {
       decoded = jsonDecode(utf8.decode(res.bodyBytes));
@@ -292,13 +297,18 @@ class RedditClient extends SourceClient {
     }
 
     if (decoded is! Map<String, dynamic>) return null;
-    final children = (decoded['data'] as Map<String, dynamic>?)?['children'];
+    final data = decoded['data'] as Map<String, dynamic>?;
+    final children = data?['children'];
     if (children is! List) return null;
 
-    return children
-        .map((c) => _toItem((c as Map<String, dynamic>)['data']
-            as Map<String, dynamic>))
-        .toList(growable: false);
+    return SourcePage(
+      items: children
+          .map((c) => _toItem((c as Map<String, dynamic>)['data']
+              as Map<String, dynamic>))
+          .toList(growable: false),
+      // Reddit pages by the fullname of the last item it gave you.
+      nextCursor: children.isEmpty ? null : data?['after'] as String?,
+    );
   }
 
   FeedItem _toItem(Map<String, dynamic> post) {

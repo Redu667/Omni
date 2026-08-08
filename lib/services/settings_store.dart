@@ -10,6 +10,17 @@ class SettingsStore {
   static const _openInAppKey = 'omni_open_in_app';
   static const _filtersKey = 'omni_feed_filters_v1';
   static const _themeKey = 'omni_theme_mode';
+  static const _dynamicColourKey = 'omni_dynamic_colour';
+
+  Future<bool> loadDynamicColour() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_dynamicColourKey) ?? true;
+  }
+
+  Future<void> saveDynamicColour(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_dynamicColourKey, value);
+  }
 
   Future<ThemeMode> loadThemeMode() async {
     final prefs = await SharedPreferences.getInstance();

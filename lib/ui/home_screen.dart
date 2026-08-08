@@ -102,13 +102,45 @@ class _FilterBar extends StatelessWidget {
   }
 }
 
-class _Feed extends StatelessWidget {
+class _Feed extends StatefulWidget {
   const _Feed({required this.state});
 
   final AppState state;
 
   @override
+  State<_Feed> createState() => _FeedState();
+}
+
+class _FeedState extends State<_Feed> {
+  final _controller = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onScroll);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// Fetches the next page a screen ahead of the bottom, so scrolling
+  /// rarely stops to wait.
+  void _onScroll() {
+    if (!_controller.hasClients) return;
+    final remaining =
+        _controller.position.maxScrollExtent - _controller.position.pixels;
+    if (remaining < MediaQuery.of(context).size.height) {
+      widget.state.loadMore();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
     final items = state.items;
 
     return RefreshIndicator(
@@ -158,9 +190,12 @@ class _Feed extends StatelessWidget {
                     ],
                   )
                 : ListView.builder(
+                    controller: _controller,
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: items.length,
-                    itemBuilder: (_, i) => PostCard(item: items[i]),
+                    itemCount: items.length + 1,
+                    itemBuilder: (_, i) => i < items.length
+                        ? PostCard(item: items[i])
+                        : _FeedFooter(state: state),
                   ),
           ),
         ],
@@ -210,6 +245,56 @@ class _EmptyState extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Sits below the last post: a spinner while more is coming, or a quiet
+/// note once every source has run out.
+class _FeedFooter extends StatelessWidget {
+  const _FeedFooter({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (state.loadingMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    if (state.hasMore) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Center(
+          child: TextButton(
+            onPressed: state.loadMore,
+            child: const Text('Load more'),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 40),
+      child: Center(
+        child: Text(
+          "That's everything your sources have.",
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.outline),
         ),
       ),
     );

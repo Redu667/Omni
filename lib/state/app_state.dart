@@ -142,6 +142,19 @@ class AppState extends ChangeNotifier {
           mutedAccounts:
               _filters.mutedAccounts.where((a) => a != account).toList()));
 
+  bool _useDynamicColour = true;
+
+  /// Whether to take colours from the system wallpaper (Material You) when
+  /// the platform offers them. On by default; falls back to Omni's own
+  /// palette where unsupported.
+  bool get useDynamicColour => _useDynamicColour;
+
+  Future<void> setUseDynamicColour(bool value) async {
+    _useDynamicColour = value;
+    await _settingsStore.saveDynamicColour(value);
+    notifyListeners();
+  }
+
   ThemeMode _themeMode = ThemeMode.system;
 
   ThemeMode get themeMode => _themeMode;
@@ -170,7 +183,11 @@ class AppState extends ChangeNotifier {
   List<FeedItem> _items = [];
   List<String> _errors = [];
   bool _loading = false;
+  bool _loadingMore = false;
   bool _initialized = false;
+
+  /// Where each source got to. Empty once everything has run out.
+  Map<String, String> _cursors = {};
 
   /// null = show everything; otherwise only this network.
   Network? _filter;
@@ -178,7 +195,11 @@ class AppState extends ChangeNotifier {
   List<FeedSource> get sources => List.unmodifiable(_sources);
   List<String> get errors => List.unmodifiable(_errors);
   bool get loading => _loading;
+  bool get loadingMore => _loadingMore;
   bool get initialized => _initialized;
+
+  /// Whether any source still has older posts to offer.
+  bool get hasMore => _cursors.isNotEmpty;
   Network? get filter => _filter;
 
   List<FeedItem> get items => List.unmodifiable(_items.where((i) =>
@@ -193,6 +214,7 @@ class AppState extends ChangeNotifier {
     _openInApp = await _settingsStore.loadOpenInApp();
     _filters = await _settingsStore.loadFilters();
     _themeMode = await _settingsStore.loadThemeMode();
+    _useDynamicColour = await _settingsStore.loadDynamicColour();
     _twitterAccount = await _twitterSessionStore.load();
     _saved = await _savedStore.load();
     _initialized = true;
@@ -223,7 +245,34 @@ class AppState extends ChangeNotifier {
         twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
     _items = result.items;
     _errors = result.errors;
+    _cursors = result.cursors;
     _loading = false;
+    notifyListeners();
+  }
+
+  /// Appends the next page from every source that still has one.
+  Future<void> loadMore() async {
+    if (_loading || _loadingMore || _cursors.isEmpty) return;
+    _loadingMore = true;
+    notifyListeners();
+
+    final result = await _repository.fetchAll(
+      _sources,
+      twitterConfig: _twitterConfig,
+      twitterAccount: _twitterAccount,
+      cursors: _cursors,
+    );
+
+    // Merge rather than replace, and re-sort so a slow source's older posts
+    // still land in the right place.
+    final seen = _items.map((i) => i.id).toSet();
+    _items = [..._items, ...result.items.where((i) => seen.add(i.id))]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    _cursors = result.cursors;
+    // Paging errors are transient and the feed still shows; don't replace
+    // the banner contents wholesale over them.
+    if (result.errors.isNotEmpty) _errors = result.errors;
+    _loadingMore = false;
     notifyListeners();
   }
 

@@ -19,7 +19,7 @@ import 'twitter_settings_screen.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const _version = '0.6.0';
+  static const _version = '0.7.0';
 
   Future<void> _importOpml(BuildContext context) async {
     final state = context.read<AppState>();
@@ -163,6 +163,15 @@ class SettingsScreen extends StatelessWidget {
               selected: {state.themeMode},
               onSelectionChanged: (s) => state.setThemeMode(s.first),
             ),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.palette_outlined),
+            title: const Text('Use wallpaper colours'),
+            subtitle: const Text(
+                'Material You. Takes the palette from your wallpaper on '
+                'Android 12 and later; Omni\'s own colours otherwise.'),
+            value: state.useDynamicColour,
+            onChanged: state.setUseDynamicColour,
           ),
 
           _SectionHeader('Reading'),

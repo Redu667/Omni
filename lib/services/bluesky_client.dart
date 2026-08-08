@@ -16,19 +16,23 @@ class BlueskyClient extends SourceClient {
   static const _authHost = 'bsky.social';
 
   @override
-  Future<List<FeedItem>> fetchLatest({int limit = 40}) async {
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
     final identifier = source.params['identifier'];
     final appPassword = source.params['appPassword'];
 
-    List feed;
+    final paging = {
+      'limit': '$limit',
+      if (cursor != null) 'cursor': cursor,
+    };
+
+    final ({List feed, String? cursor}) result;
     if (identifier != null &&
         identifier.isNotEmpty &&
         appPassword != null &&
         appPassword.isNotEmpty) {
       final jwt = await _createSession(identifier, appPassword);
-      feed = await _getFeed(
-        Uri.https(_authHost, '/xrpc/app.bsky.feed.getTimeline',
-            {'limit': '$limit'}),
+      result = await _getFeed(
+        Uri.https(_authHost, '/xrpc/app.bsky.feed.getTimeline', paging),
         headers: {'Authorization': 'Bearer $jwt'},
       );
     } else {
@@ -38,15 +42,20 @@ class BlueskyClient extends SourceClient {
         throw SourceFetchException(
             source.displayName, 'no handle or credentials configured');
       }
-      feed = await _getFeed(
+      result = await _getFeed(
         Uri.https(_publicHost, '/xrpc/app.bsky.feed.getAuthorFeed',
-            {'actor': handle, 'limit': '$limit'}),
+            {'actor': handle, ...paging}),
       );
     }
 
-    return feed
-        .map((e) => _toItem(e as Map<String, dynamic>))
-        .toList(growable: false);
+    return SourcePage(
+      items: result.feed
+          .map((e) => _toItem(e as Map<String, dynamic>))
+          .toList(growable: false),
+      // Bluesky keeps returning a cursor past the end, so an empty page is
+      // the real signal that there is nothing more.
+      nextCursor: result.feed.isEmpty ? null : result.cursor,
+    );
   }
 
   Future<String> _createSession(String identifier, String appPassword) async {
@@ -63,14 +72,18 @@ class BlueskyClient extends SourceClient {
         as String;
   }
 
-  Future<List> _getFeed(Uri uri, {Map<String, String>? headers}) async {
+  Future<({List feed, String? cursor})> _getFeed(Uri uri,
+      {Map<String, String>? headers}) async {
     final res = await httpClient.get(uri, headers: headers);
     if (res.statusCode != 200) {
       throw SourceFetchException(
           source.displayName, 'HTTP ${res.statusCode} from ${uri.host}');
     }
     final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
-    return body['feed'] as List? ?? const [];
+    return (
+      feed: body['feed'] as List? ?? const [],
+      cursor: body['cursor'] as String?,
+    );
   }
 
   @override
@@ -81,11 +94,11 @@ class BlueskyClient extends SourceClient {
     final handle = item.handle?.replaceFirst(RegExp(r'^@'), '');
     if (handle == null || handle.isEmpty) return const [];
 
-    final feed = await _getFeed(
+    final result = await _getFeed(
       Uri.https(_publicHost, '/xrpc/app.bsky.feed.getAuthorFeed',
           {'actor': handle, 'limit': '$limit'}),
     );
-    return feed
+    return result.feed
         .map((e) => _toItem(e as Map<String, dynamic>))
         .toList(growable: false);
   }

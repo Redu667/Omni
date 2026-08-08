@@ -9,8 +9,15 @@ import 'source_client.dart';
 class RssClient extends SourceClient {
   const RssClient(super.source, super.httpClient);
 
+  /// Feeds publish a fixed window of recent entries with no way to ask for
+  /// older ones, so every page is the last one.
   @override
-  Future<List<FeedItem>> fetchLatest({int limit = 40}) async {
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
+    if (cursor != null) return const SourcePage.last([]);
+    return SourcePage.last(await _fetchAll(limit));
+  }
+
+  Future<List<FeedItem>> _fetchAll(int limit) async {
     final url = source.params['url']!;
     final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
 

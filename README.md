@@ -10,7 +10,8 @@ Moshidon, but spanning multiple networks.
 ## Features
 
 - **Unified timeline** — posts from every configured source, merged and sorted
-  by time, with pull-to-refresh.
+  by time, with pull-to-refresh and endless scrolling: each network is paged
+  with its own cursor, and sources that run out drop out quietly.
 - **Easy setup** — in-app Mastodon sign-in (OAuth, no token pasting), a
   quick-start screen with curated no-account sources, and every source is
   test-fetched when you add it so mistakes fail immediately with a clear
@@ -40,7 +41,9 @@ Moshidon, but spanning multiple networks.
   several accounts; toggle each on/off or remove it.
 - **Graceful partial failure** — if one source is down you still get the rest,
   with an inline warning.
-- **Material 3** with dynamic light/dark themes.
+- **Material 3 with Material You** — takes its palette from your wallpaper on
+  Android 12+, with a light/dark/system override and a switch back to Omni's
+  own colours.
 - **Encrypted credential storage** — tokens and app passwords are kept in
   Android's encrypted storage via `flutter_secure_storage`.
 

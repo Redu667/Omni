@@ -15,7 +15,7 @@ whether Omni is usable as a daily reader at all.
 
 | Gap | Status | Notes |
 |---|---|---|
-| **Pagination / infinite scroll** | ✗ | Only the newest ~40 posts per source are ever fetched. There is no way to reach older posts — scroll to the bottom and the feed simply ends. Arguably the single biggest limitation. |
+| **Pagination / infinite scroll** | ✓ | Each network is paged with its own cursor (Mastodon `max_id`, Reddit `after`, Bluesky/X tokens); sources drop out as they run out. RSS is the exception — feeds publish a fixed window with no way to ask for older entries. |
 | **Offline cache** | ✗ | Nothing is persisted. Every launch refetches from scratch; with no signal there is no feed at all, and a refresh discards what you were reading. |
 | **Read / unread state** | ✗ | No notion of what you've already seen, so refreshing loses your place. Feed readers live on this. |
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
@@ -28,7 +28,7 @@ whether Omni is usable as a daily reader at all.
 | **Share sheet** | ✗ | Can copy a link from the detail menu; can't share to another app. |
 | **Content warnings** | ✓ | Mastodon spoilers and Reddit `over_18` hide the body behind a reveal. |
 | **Mute filters** | ◐ | Words and accounts work. No regex, no per-source scoping, no time-limited mutes, no muting by hashtag or domain. |
-| **Display settings** | ◐ | Light/dark/system theme override. No text size, density, or compact layout. |
+| **Display settings** | ◐ | Material You wallpaper colours plus a light/dark/system override. No text size, density, or compact layout. |
 | **Per-source refresh interval** | ✗ | Everything refreshes together, on demand only. |
 | **Cross-post de-duplication** | ✗ | The same story from an RSS feed and a subreddit appears twice. Only exact id collisions are deduped. |
 | **Translation** | ✗ | No inline translation of foreign-language posts. |
@@ -148,13 +148,13 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Pagination** — without it the feed is a fixed window, and everything else is polish on a stunted app.
-2. **Offline cache + read state** — turns Omni from a live query into an actual reader that keeps your place.
-3. **X home timeline** — small change, large payoff, and the auth work is already done.
-4. **Thread parent context** (Mastodon + Bluesky) — a few lines each; the data is already in the responses Omni fetches and discards.
-5. **Image viewer with multi-image support** — currently the most visible day-to-day rough edge.
-6. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
-7. **Bluesky labels** — moderation currently bypassed; belongs with correctness work rather than features.
-8. **Reddit "load more" comments** — deep threads are quietly cut off today.
-9. **Video playback** — big lift, touches every network.
-10. **OPML export** — small, and removes a lock-in problem.
+1. **Offline cache + read state** — turns Omni from a live query into an actual reader that keeps your place. The biggest remaining gap now that paging exists.
+2. **X home timeline** — small change, large payoff, and the auth work is already done.
+3. **Thread parent context** (Mastodon + Bluesky) — a few lines each; the data is already in the responses Omni fetches and discards.
+4. **Image viewer with multi-image support** — currently the most visible day-to-day rough edge.
+5. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
+6. **Bluesky labels** — moderation currently bypassed; belongs with correctness work rather than features.
+7. **Reddit "load more" comments** — deep threads are quietly cut off today.
+8. **Alt text** — small, and an accessibility gap rather than a nicety.
+9. **Search** — across the loaded feed first, which needs no new API work.
+10. **Video playback** — big lift, touches every network.
