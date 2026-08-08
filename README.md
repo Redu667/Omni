@@ -1,5 +1,7 @@
 # Omni
 
+<img src="docs/icon.png" alt="Omni" width="96" align="right">
+
 One timeline for all your feeds. Omni is a Flutter app for Android that merges
 **Mastodon**, **Bluesky**, **Reddit**, **Twitter/X** and **RSS/Atom** into a
 single reverse-chronological feed — in the spirit of focused clients like
@@ -116,6 +118,13 @@ app for real, generate a private keystore and point the build at it via the
 `OMNI_KEY_PASSWORD` environment variables (e.g. from GitHub Actions secrets).
 Note that switching keys changes the APK signature, so devices with an older
 install must uninstall before updating.
+
+## App icon
+
+The launcher icon is an "O" built from five arcs, one per network Omni
+aggregates. It's generated rather than hand-drawn — run `python3
+tools/make_icon.py` (needs Pillow) to regenerate every density plus the
+Android adaptive-icon layers after changing the colours or proportions.
 
 ## Architecture
 
