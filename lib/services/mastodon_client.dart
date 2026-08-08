@@ -7,8 +7,11 @@ import 'source_client.dart';
 
 /// Mastodon timelines.
 ///
-/// With an access token, fetches the account's home timeline; without one,
-/// the instance's public (federated or local) timeline.
+/// Four kinds, in the order they're checked:
+///  - `hashtag`: a tag timeline, public and needing no account.
+///  - `list`: one of the account's own lists, which does need a token.
+///  - a token, and neither of the above: the account's home timeline.
+///  - nothing: the instance's public (federated or local) timeline.
 class MastodonClient extends SourceClient {
   const MastodonClient(super.source, super.httpClient);
 
@@ -17,6 +20,8 @@ class MastodonClient extends SourceClient {
     final instance = source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
     final token = source.params['accessToken'];
     final local = source.params['local'] == 'true';
+    final hashtag = source.params['hashtag']?.replaceFirst(RegExp(r'^#'), '');
+    final list = source.params['list'];
 
     // Mastodon pages by asking for statuses older than an id.
     final query = {
@@ -27,8 +32,21 @@ class MastodonClient extends SourceClient {
     final Uri uri;
     final headers = <String, String>{};
     if (token != null && token.isNotEmpty) {
-      uri = Uri.https(instance, '/api/v1/timelines/home', query);
       headers['Authorization'] = 'Bearer $token';
+    }
+
+    if (hashtag != null && hashtag.isNotEmpty) {
+      // Tag timelines are public, so this works signed in or not.
+      uri = Uri.https(instance, '/api/v1/timelines/tag/$hashtag',
+          {...query, if (local) 'local': 'true'});
+    } else if (list != null && list.isNotEmpty) {
+      if (headers.isEmpty) {
+        throw SourceFetchException(source.displayName,
+            'lists are private — sign in to this instance to read one');
+      }
+      uri = Uri.https(instance, '/api/v1/timelines/list/$list', query);
+    } else if (headers.isNotEmpty) {
+      uri = Uri.https(instance, '/api/v1/timelines/home', query);
     } else {
       uri = Uri.https(instance, '/api/v1/timelines/public',
           {...query, if (local) 'local': 'true'});
@@ -37,7 +55,7 @@ class MastodonClient extends SourceClient {
     final res = await httpClient.get(uri, headers: headers);
     if (res.statusCode != 200) {
       throw SourceFetchException(
-          source.displayName, 'HTTP ${res.statusCode} from $instance');
+          source.displayName, _explain(res.statusCode, instance));
     }
 
     final statuses = jsonDecode(utf8.decode(res.bodyBytes)) as List;
@@ -53,6 +71,45 @@ class MastodonClient extends SourceClient {
       items: items,
       nextCursor: statuses.length < limit ? null : oldestId,
     );
+  }
+
+  /// A hashtag or list that doesn't exist 404s exactly like a wrong
+  /// instance, so name the likely cause instead of the number.
+  String _explain(int status, String instance) {
+    final what = source.params['hashtag'] != null
+        ? 'hashtag'
+        : source.params['list'] != null
+            ? 'list'
+            : null;
+    return switch (status) {
+      404 when what != null => 'No such $what on $instance.',
+      401 || 403 when what == 'list' =>
+        'That list belongs to another account, or the sign-in has expired.',
+      _ => 'HTTP $status from $instance',
+    };
+  }
+
+  /// The account's own lists, as `id: title` — used to offer a choice
+  /// rather than making the user find a numeric id.
+  Future<Map<String, String>> fetchLists() async {
+    final instance =
+        source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
+    final token = source.params['accessToken'];
+    if (token == null || token.isEmpty) return const {};
+
+    final res = await httpClient.get(
+      Uri.https(instance, '/api/v1/lists'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (res.statusCode != 200) return const {};
+
+    final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    if (decoded is! List) return const {};
+    return {
+      for (final entry in decoded.cast<Map<String, dynamic>>())
+        if (entry['id'] is String)
+          entry['id'] as String: entry['title'] as String? ?? 'Untitled list',
+    };
   }
 
   @override

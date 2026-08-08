@@ -65,7 +65,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | **Custom emoji** | ✗ | `:shortcodes:` show as literal text instead of the instance's emoji. |
 | **Interactions** | ✗ | No favourite, boost, reply, or follow. Omni is read-only by design, but favouriting is the one most readers expect. |
 | **Notifications timeline** | ✗ | No mentions, follows, or replies view. |
-| **Lists & hashtag timelines** | ✗ | Only home and public. Mastodon lists are a major curation tool. |
+| **Lists & hashtag timelines** | ✓ | Hashtag timelines need no account and can be scoped to one instance; lists are offered by name after signing in, rather than by numeric id. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
 | **Bookmarks & favourites** | ✗ | Can't read your own saved posts. |
 | **Sensitive media blur** | ◐ | Whole post is hidden; no per-attachment blur-with-tap. |
@@ -164,10 +164,10 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
-2. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
-3. **Collapse comment threads** — now that threads load fully, folding them matters more.
-4. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
-5. **Bluesky session reuse** — signing in on every refresh is slow and impolite.
+1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
+2. **Collapse comment threads** — now that threads load fully, folding them matters more.
+3. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
+4. **Bluesky session reuse** — signing in on every refresh is slow and impolite.
+5. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
 6. **Video playback** — big lift, touches every network.
-7. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
+7. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.

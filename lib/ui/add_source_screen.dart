@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/feed_source.dart';
 import '../models/network.dart';
+import '../services/mastodon_client.dart';
 import '../services/mastodon_oauth.dart';
 import '../services/source_client.dart';
 import '../state/app_state.dart';
@@ -125,10 +126,27 @@ class _SourceFormState extends State<_SourceForm> {
   ({String instance, String clientId, String clientSecret})? _pendingOauth;
   String? _oauthAccount;
 
+  /// The signed-in account's lists, as id → title. Empty until sign-in.
+  Map<String, String> _lists = const {};
+  String? _selectedList;
+
+  Future<Map<String, String>> _fetchLists(String instance, String token) =>
+      MastodonClient(
+        FeedSource(
+          id: 'probe',
+          network: Network.mastodon,
+          displayName: instance,
+          params: {'instance': instance, 'accessToken': token},
+        ),
+        _oauth.httpClient,
+      ).fetchLists();
+
   List<_FieldSpec> get _fields => switch (widget.network) {
         Network.mastodon => const [
             _FieldSpec('instance', 'Instance',
                 hint: 'mastodon.social', required: true),
+            _FieldSpec('hashtag', 'Hashtag (optional)',
+                hint: 'photography — no account needed'),
             _FieldSpec('accessToken', 'Access token (optional)',
                 hint: 'Filled automatically when you sign in below',
                 obscure: true),
@@ -234,6 +252,9 @@ class _SourceFormState extends State<_SourceForm> {
       _oauthAccount =
           await _oauth.verifyCredentials(pending.instance, token);
       _pendingOauth = null;
+      // Lists are only readable once signed in, so this is the first moment
+      // we can offer them by name instead of by numeric id.
+      _lists = await _fetchLists(pending.instance, token);
       if (mounted) setState(() => _error = null);
     } on MastodonOAuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -243,11 +264,15 @@ class _SourceFormState extends State<_SourceForm> {
   }
 
   String _defaultName(Map<String, String> params) => switch (widget.network) {
-        Network.mastodon => params['accessToken']?.isNotEmpty == true
-            ? (_oauthAccount != null
+        Network.mastodon => switch (params) {
+            {'hashtag': final String tag} =>
+              '#${tag.replaceFirst(RegExp(r'^#'), '')}',
+            {'list': final String id} => _lists[id] ?? 'Mastodon list',
+            {'accessToken': final String _} => _oauthAccount != null
                 ? '@$_oauthAccount'
-                : 'Home · ${params['instance']}')
-            : 'Public · ${params['instance']}',
+                : 'Home · ${params['instance']}',
+            _ => 'Public · ${params['instance']}',
+          },
         Network.bluesky => switch (params) {
             {'feed': final String feed} => _blueskyFeedName(feed),
             {'identifier': final String _} => 'Bluesky home',
@@ -284,6 +309,7 @@ class _SourceFormState extends State<_SourceForm> {
     };
     if (widget.network == Network.mastodon) {
       params['instance'] = MastodonOAuth.normalizeInstance(params['instance']!);
+      if (_selectedList != null) params['list'] = _selectedList!;
     }
     if (widget.network == Network.twitter) {
       params['mode'] = _twitterOfficial ? 'official' : 'guest';
@@ -378,12 +404,33 @@ class _SourceFormState extends State<_SourceForm> {
             Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 16),
               child: Text(
-                'Sign in for your personal home timeline, or leave the token '
-                'empty to follow the instance\'s public timeline.',
+                'Sign in for your personal home timeline or one of your '
+                'lists, or leave the token empty for the instance\'s public '
+                'timeline. A hashtag works either way.',
                 style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.outline),
               ),
             ),
+            if (_lists.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: DropdownButtonFormField<String>(
+                  value: _selectedList,
+                  decoration: const InputDecoration(
+                    labelText: 'List',
+                    helperText: 'Leave unset for your home timeline',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                        value: null, child: Text('Home timeline')),
+                    for (final entry in _lists.entries)
+                      DropdownMenuItem(
+                          value: entry.key, child: Text(entry.value)),
+                  ],
+                  onChanged: (v) => setState(() => _selectedList = v),
+                ),
+              ),
           ],
           if (widget.network == Network.reddit) ...[
             Padding(
