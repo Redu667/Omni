@@ -109,6 +109,9 @@ class _SourceFormState extends State<_SourceForm> {
   /// because it needs a paid plan.
   bool _twitterOfficial = false;
 
+  /// Which Reddit listing to pull. Matches Reddit's own default.
+  String _redditSort = 'hot';
+
   // Mastodon OAuth state, alive while the browser round-trip is in flight.
   final _oauth = MastodonOAuth(http.Client());
   StreamSubscription<Uri>? _linkSub;
@@ -238,7 +241,9 @@ class _SourceFormState extends State<_SourceForm> {
         Network.bluesky => params['identifier']?.isNotEmpty == true
             ? 'Bluesky home'
             : '@${params['handle']}',
-        Network.reddit => 'r/${params['subreddit']}',
+        Network.reddit => params['sort'] == null || params['sort'] == 'hot'
+            ? 'r/${params['subreddit']}'
+            : 'r/${params['subreddit']} · ${params['sort']}',
         Network.twitter => 'X · ${params['usernames']}',
         Network.rss => Uri.tryParse(params['url'] ?? '')?.host ?? 'RSS feed',
       };
@@ -256,6 +261,9 @@ class _SourceFormState extends State<_SourceForm> {
     }
     if (widget.network == Network.twitter) {
       params['mode'] = _twitterOfficial ? 'official' : 'guest';
+    }
+    if (widget.network == Network.reddit) {
+      params['sort'] = _redditSort;
     }
 
     if (widget.network == Network.bluesky &&
@@ -345,6 +353,25 @@ class _SourceFormState extends State<_SourceForm> {
               ),
             ),
           ],
+          if (widget.network == Network.reddit)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: DropdownButtonFormField<String>(
+                value: _redditSort,
+                decoration: const InputDecoration(
+                  labelText: 'Sort',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'hot', child: Text('Hot')),
+                  DropdownMenuItem(value: 'new', child: Text('New')),
+                  DropdownMenuItem(value: 'top', child: Text('Top')),
+                  DropdownMenuItem(value: 'rising', child: Text('Rising')),
+                ],
+                onChanged: (v) =>
+                    setState(() => _redditSort = v ?? 'hot'),
+              ),
+            ),
           if (widget.network == Network.twitter) ...[
             SegmentedButton<bool>(
               segments: const [

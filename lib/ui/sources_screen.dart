@@ -134,10 +134,33 @@ class SourcesScreen extends StatelessWidget {
                           color: source.network.color),
                     ),
                     title: Text(source.displayName),
-                    subtitle: Text(source.network.label),
+                    subtitle: Text(source.network == Network.reddit
+                        ? 'Reddit · sorted by ${source.params['sort'] ?? 'hot'}'
+                        : source.network.label),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (source.network == Network.reddit)
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.sort),
+                            tooltip: 'Change sort',
+                            initialValue: source.params['sort'] ?? 'hot',
+                            onSelected: (sort) {
+                              final sub = source.params['subreddit'] ?? '';
+                              state.updateSource(
+                                source.id,
+                                {...source.params, 'sort': sort},
+                                sort == 'hot' ? 'r/$sub' : 'r/$sub · $sort',
+                              );
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: 'hot', child: Text('Hot')),
+                              PopupMenuItem(value: 'new', child: Text('New')),
+                              PopupMenuItem(value: 'top', child: Text('Top')),
+                              PopupMenuItem(
+                                  value: 'rising', child: Text('Rising')),
+                            ],
+                          ),
                         Switch(
                           value: source.enabled,
                           onChanged: (v) => state.toggleSource(source.id, v),

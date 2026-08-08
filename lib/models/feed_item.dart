@@ -21,6 +21,8 @@ class FeedItem {
     this.context,
     this.fullText,
     this.nativeId,
+    this.contentWarning,
+    this.sensitive = false,
   });
 
   /// Globally unique: `sourceId:nativeId`.
@@ -60,6 +62,16 @@ class FeedItem {
   /// `at://` URI, a Reddit permalink. Needed to fetch the reply thread,
   /// since [id] is namespaced to the source.
   final String? nativeId;
+
+  /// The author's own warning about what's underneath — Mastodon's
+  /// spoiler text. Non-null means the body starts hidden.
+  final String? contentWarning;
+
+  /// Marked sensitive by the author or the platform (Mastodon's `sensitive`,
+  /// Reddit's `over_18`). Media starts blurred.
+  final bool sensitive;
+
+  bool get needsReveal => (contentWarning?.isNotEmpty ?? false) || sensitive;
 
   final DateTime createdAt;
 

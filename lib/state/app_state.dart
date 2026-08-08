@@ -204,6 +204,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Replaces a source's settings in place, keeping its id so its posts
+  /// aren't orphaned. Used for things like changing a subreddit's sort.
+  Future<void> updateSource(
+      String id, Map<String, String> params, String displayName) async {
+    final index = _sources.indexWhere((s) => s.id == id);
+    if (index < 0) return;
+
+    final existing = _sources[index];
+    _sources = [..._sources]..[index] = FeedSource(
+        id: existing.id,
+        network: existing.network,
+        displayName: displayName,
+        params: params,
+        enabled: existing.enabled,
+      );
+    await _store.save(_sources);
+    notifyListeners();
+    await refresh();
+  }
+
   Future<void> toggleSource(String id, bool enabled) async {
     final source = _sources.firstWhere((s) => s.id == id);
     source.enabled = enabled;

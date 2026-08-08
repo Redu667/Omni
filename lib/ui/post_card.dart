@@ -7,10 +7,19 @@ import '../models/feed_item.dart';
 import '../models/network.dart';
 import 'post_detail_screen.dart';
 
-class PostCard extends StatelessWidget {
+class PostCard extends StatefulWidget {
   const PostCard({super.key, required this.item});
 
   final FeedItem item;
+
+  @override
+  State<PostCard> createState() => _PostCardState();
+}
+
+class _PostCardState extends State<PostCard> {
+  bool _revealed = false;
+
+  FeedItem get item => widget.item;
 
   Future<void> _openExternally() async {
     final url = item.url;
@@ -68,7 +77,15 @@ class PostCard extends StatelessWidget {
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w600)),
                 ),
-              if (item.text.isNotEmpty)
+              if (item.needsReveal && !_revealed)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: _RevealPrompt(
+                    item: item,
+                    onReveal: () => setState(() => _revealed = true),
+                  ),
+                ),
+              if (item.text.isNotEmpty && (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
@@ -78,7 +95,8 @@ class PostCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              if (item.imageUrls.isNotEmpty)
+              if (item.imageUrls.isNotEmpty &&
+                  (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
                   child: ClipRRect(
@@ -206,5 +224,61 @@ class _Stat extends StatelessWidget {
     if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
     if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
     return '$n';
+  }
+}
+
+
+/// Stands in for a post the author flagged, so a content warning is honoured
+/// rather than decorative.
+class _RevealPrompt extends StatelessWidget {
+  const _RevealPrompt({required this.item, required this.onReveal});
+
+  final FeedItem item;
+  final VoidCallback onReveal;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final warning = item.contentWarning;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.visibility_off_outlined,
+                  size: 16, color: theme.colorScheme.outline),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  warning ?? 'Marked sensitive',
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: onReveal,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(0, 32),
+              ),
+              child: const Text('Show anyway'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
