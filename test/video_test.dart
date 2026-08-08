@@ -54,7 +54,7 @@ void main() {
       expect(media.thumbnailUrl, 'https://m.example/v.png');
       expect(media.alt, 'a cat');
       expect(media.durationSeconds, 12);
-      expect(item.hasPlayableMedia, isTrue);
+      expect(media.kind.isPlayable, isTrue);
     });
 
     test('a gifv is a gif, not a video', () async {
@@ -90,7 +90,7 @@ void main() {
 
       expect(item.media.single.kind, MediaKind.image);
       expect(item.media.single.url, 'https://m.example/small.png');
-      expect(item.hasPlayableMedia, isFalse);
+      expect(item.media.single.kind.isPlayable, isFalse);
     });
 
     test('audio is still skipped rather than shown as a broken image',

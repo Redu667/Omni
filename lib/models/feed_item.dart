@@ -198,7 +198,6 @@ class FeedItem {
   /// for the video itself.
   List<String> get imageUrls => [for (final m in media) m.previewUrl];
 
-  bool get hasPlayableMedia => media.any((m) => m.kind.isPlayable);
 
   /// Who boosted/reposted this into the timeline, if anyone.
   final String? repostedBy;
