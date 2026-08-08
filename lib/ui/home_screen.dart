@@ -148,6 +148,18 @@ class _Feed extends StatefulWidget {
 
 class _FeedState extends State<_Feed> {
   final _controller = ScrollController();
+  final _listKey = GlobalKey();
+
+  /// One key per built post, so their positions can be measured. The list
+  /// only builds what's near the viewport, so this stays small.
+  final _itemKeys = <int, GlobalKey>{};
+
+  /// How far down the list has been marked read by scrolling. Never goes
+  /// backwards — scrolling up to re-read something shouldn't unread it.
+  int _readUpTo = -1;
+
+  /// Identifies the list the indices belong to; a refresh shifts everything.
+  String? _headId;
 
   @override
   void initState() {
@@ -162,21 +174,64 @@ class _FeedState extends State<_Feed> {
     super.dispose();
   }
 
-  /// Fetches the next page a screen ahead of the bottom, so scrolling
-  /// rarely stops to wait.
   void _onScroll() {
     if (!_controller.hasClients) return;
+    // Fetch the next page a screen ahead of the bottom, so scrolling rarely
+    // stops to wait.
     final remaining =
         _controller.position.maxScrollExtent - _controller.position.pixels;
     if (remaining < MediaQuery.of(context).size.height) {
       widget.state.loadMore();
     }
+    _markScrolledPast();
+  }
+
+  /// Marks everything that has passed above the top of the list.
+  ///
+  /// Measured rather than counted: posts vary wildly in height, so there's
+  /// no offset-to-index shortcut. Scanning every built key — instead of
+  /// walking forward one at a time — means a fast fling that disposes rows
+  /// before they're measured doesn't leave a gap of never-read posts.
+  void _markScrolledPast() {
+    final state = widget.state;
+    if (!state.markReadOnScroll) return;
+
+    final listBox = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    if (listBox == null || !listBox.attached) return;
+    final top = listBox.localToGlobal(Offset.zero).dy;
+
+    var highest = _readUpTo;
+    for (final entry in _itemKeys.entries) {
+      if (entry.key <= _readUpTo) continue;
+      final box = entry.value.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached) continue;
+      final bottom = box.localToGlobal(Offset.zero).dy + box.size.height;
+      if (bottom <= top && entry.key > highest) highest = entry.key;
+    }
+    if (highest <= _readUpTo) return;
+
+    final items = state.items;
+    final passed = [
+      for (var i = _readUpTo + 1; i <= highest && i < items.length; i++)
+        items[i].id,
+    ];
+    _readUpTo = highest;
+    if (passed.isNotEmpty) state.markScrolledRead(passed);
   }
 
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
     final items = state.items;
+
+    // A refresh puts new posts on top, so the indices no longer mean what
+    // they did and reading has to start over from the top.
+    final head = items.firstOrNull?.id;
+    if (head != _headId) {
+      _headId = head;
+      _readUpTo = -1;
+      _itemKeys.clear();
+    }
 
     return RefreshIndicator(
       onRefresh: state.refresh,
@@ -270,11 +325,15 @@ class _FeedState extends State<_Feed> {
                     ],
                   )
                 : ListView.builder(
+                    key: _listKey,
                     controller: _controller,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: items.length + 1,
                     itemBuilder: (_, i) => i < items.length
-                        ? PostCard(item: items[i])
+                        ? KeyedSubtree(
+                            key: _itemKeys.putIfAbsent(i, GlobalKey.new),
+                            child: PostCard(item: items[i]),
+                          )
                         : _FeedFooter(state: state),
                   ),
           ),

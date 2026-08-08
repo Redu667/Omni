@@ -186,6 +186,16 @@ class SettingsScreen extends StatelessWidget {
             onChanged: state.setHideRead,
           ),
           SwitchListTile(
+            secondary: const Icon(Icons.swipe_up_outlined),
+            title: const Text('Mark read by scrolling past'),
+            subtitle: const Text(
+                'Posts that pass the top of the screen count as read. They '
+                'stay put until the next refresh, so nothing moves under '
+                'your thumb.'),
+            value: state.markReadOnScroll,
+            onChanged: state.setMarkReadOnScroll,
+          ),
+          SwitchListTile(
             secondary: const Icon(Icons.open_in_new),
             title: const Text('Open originals in Omni'),
             subtitle: const Text(

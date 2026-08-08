@@ -68,11 +68,22 @@ class AppState extends ChangeNotifier {
 
   Set<String> _readIds = {};
   bool _hideRead = false;
+  bool _markReadOnScroll = false;
+
+  /// Marked read by scrolling since the last refresh.
+  ///
+  /// Held apart from the hide-read filter on purpose: pulling posts out of
+  /// the list as they pass the top of the screen moves everything under the
+  /// reader's thumb. They dim immediately and disappear on the next refresh.
+  final Set<String> _readWhileScrolling = {};
 
   bool isRead(FeedItem item) => _readIds.contains(item.id);
 
   /// Whether read posts are hidden outright rather than just dimmed.
   bool get hideRead => _hideRead;
+
+  /// Whether scrolling a post off the top of the screen marks it read.
+  bool get markReadOnScroll => _markReadOnScroll;
 
   int get unreadCount =>
       _visibleItems.where((i) => !_readIds.contains(i.id)).length;
@@ -83,8 +94,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setMarkReadOnScroll(bool value) async {
+    _markReadOnScroll = value;
+    await _settingsStore.saveMarkReadOnScroll(value);
+    notifyListeners();
+  }
+
   Future<void> markRead(FeedItem item) async {
     if (!_readIds.add(item.id)) return;
+    await _settingsStore.saveReadIds(_readIds);
+    notifyListeners();
+  }
+
+  /// Marks everything scrolled past, in one go — the scroll listener fires
+  /// far more often than the list actually advances.
+  Future<void> markScrolledRead(Iterable<String> ids) async {
+    final fresh = ids.where(_readIds.add).toList();
+    if (fresh.isEmpty) return;
+    _readWhileScrolling.addAll(fresh);
     await _settingsStore.saveReadIds(_readIds);
     notifyListeners();
   }
@@ -357,9 +384,10 @@ class AppState extends ChangeNotifier {
         !_filters.hides(i));
   }
 
-  List<FeedItem> get items => List.unmodifiable(
-      _hideRead ? _visibleItems.where((i) => !_readIds.contains(i.id))
-                : _visibleItems);
+  List<FeedItem> get items => List.unmodifiable(_hideRead
+      ? _visibleItems.where((i) =>
+          !_readIds.contains(i.id) || _readWhileScrolling.contains(i.id))
+      : _visibleItems);
 
   /// Every post loaded, ignoring the collection, network chip and mute
   /// filters. Search uses this: when you're hunting for a specific post you
@@ -373,6 +401,7 @@ class AppState extends ChangeNotifier {
     _sources = await _store.load();
     _readIds = await _settingsStore.loadReadIds();
     _hideRead = await _settingsStore.loadHideRead();
+    _markReadOnScroll = await _settingsStore.loadMarkReadOnScroll();
     _collections = await _settingsStore.loadCollections();
 
     // Show the cached timeline immediately; the network refresh follows.
@@ -440,6 +469,9 @@ class AppState extends ChangeNotifier {
     _cursors = result.cursors;
     _staleSourceIds = result.staleSourceIds;
     _fromCache = false;
+    // Posts held back from the hide-read filter while they were on screen
+    // can go now: the reader has left the list.
+    _readWhileScrolling.clear();
     _loading = false;
     notifyListeners();
     await _cache.save(_items);

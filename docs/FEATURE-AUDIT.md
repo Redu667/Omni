@@ -32,7 +32,7 @@ whether Omni is usable as a daily reader at all.
 |---|---|---|
 | **Pagination / infinite scroll** | ✓ | Each network is paged with its own cursor (Mastodon `max_id`, Reddit `after`, Bluesky/X tokens); sources drop out as they run out. RSS is the exception — feeds publish a fixed window with no way to ask for older entries. |
 | **Offline cache** | ✓ | The timeline is kept on disk and shown instantly at launch, with a banner while it's stale. A refresh that fails everywhere keeps the cache rather than blanking the feed. |
-| **Read / unread state** | ◐ | Opening a post marks it read; read posts dim, or hide entirely by choice, and there's mark-all-read. Not yet: marking read by scrolling past. |
+| **Read / unread state** | ✓ | Opening a post marks it read; scrolling one off the top of the screen does too, behind a setting. Read posts dim, or hide entirely by choice, and there's mark-all-read. Posts marked by scrolling stay in place until the next refresh, so the list never shifts under a moving thumb. |
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
 | **Search** | ◐ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip. Not yet: querying each network's own search API for posts you haven't loaded. |
@@ -164,10 +164,10 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Mark read by scrolling past** — the half of read-state that's still missing.
-2. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
-3. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
-4. **Collapse comment threads** — now that threads load fully, folding them matters more.
-5. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
+1. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
+2. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
+3. **Collapse comment threads** — now that threads load fully, folding them matters more.
+4. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
+5. **Bluesky session reuse** — signing in on every refresh is slow and impolite.
 6. **Video playback** — big lift, touches every network.
 7. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
