@@ -67,7 +67,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | **Notifications timeline** | ✗ | No mentions, follows, or replies view. |
 | **Lists & hashtag timelines** | ✓ | Hashtag timelines need no account and can be scoped to one instance; lists are offered by name after signing in, rather than by numeric id. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
-| **Bookmarks & favourites** | ✗ | Can't read your own saved posts. |
+| **Bookmarks & favourites** | ✓ | Both readable as sources once signed in. They page by their own ids from the `Link` header, not by status id — paging them as a timeline returns the same page forever. |
 | **Sensitive media blur** | ◐ | Whole post is hidden; no per-attachment blur-with-tap. |
 | **Filters (server-side)** | ✗ | Mastodon's own keyword filters are ignored; Omni's local ones are separate. |
 
@@ -167,5 +167,5 @@ Ordered by value-per-effort rather than by how impressive they sound.
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
 2. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
 3. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
-4. **Mastodon bookmarks & favourites** — your own saved posts on the instance aren't readable.
-5. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
+4. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
+5. **JSON Feed** — a third feed format Omni doesn't read.
