@@ -53,17 +53,19 @@ class RssClient extends SourceClient {
     return channel.findElements('item').take(limit).map((item) {
       String text(String tag) => item.getElement(tag)?.innerText.trim() ?? '';
 
-      final images = <String>[];
+      final images = <MediaItem>[];
       final enclosure = item.getElement('enclosure');
       if ((enclosure?.getAttribute('type') ?? '').startsWith('image')) {
         final u = enclosure!.getAttribute('url');
-        if (u != null) images.add(u);
+        if (u != null) images.add(MediaItem(url: u));
       }
       for (final mc in item.findElements('media:content')) {
         final u = mc.getAttribute('url');
         final type = mc.getAttribute('type') ?? mc.getAttribute('medium') ?? '';
         if (u != null && (type.startsWith('image') || type == 'image')) {
-          images.add(u);
+          images.add(MediaItem(
+              url: u,
+              alt: mc.getElement('media:description')?.innerText.trim()));
         }
       }
 
@@ -86,7 +88,7 @@ class RssClient extends SourceClient {
             : description,
         fullText: full.length > description.length ? full : null,
         url: link.isNotEmpty ? link : null,
-        imageUrls: images,
+        media: images,
         context: feedTitle,
         createdAt: parseRfc822OrIso(text('pubDate')) ?? DateTime.now().toUtc(),
       );

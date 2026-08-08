@@ -15,7 +15,10 @@ FeedItem sample({String id = 'x'}) => FeedItem(
       fullText: 'the longer body text',
       url: 'https://bsky.app/profile/alice.bsky.social/post/1',
       nativeId: 'at://did/app.bsky.feed.post/1',
-      imageUrls: const ['https://cdn/1.jpg', 'https://cdn/2.jpg'],
+      media: const [
+        MediaItem(url: 'https://cdn/1.jpg', alt: 'a cat'),
+        MediaItem(url: 'https://cdn/2.jpg'),
+      ],
       repostedBy: 'Bob',
       likes: 5,
       reposts: 2,
@@ -39,6 +42,9 @@ void main() {
       expect(restored.text, 'body text');
       expect(restored.fullText, 'the longer body text');
       expect(restored.imageUrls, ['https://cdn/1.jpg', 'https://cdn/2.jpg']);
+      expect(restored.media.first.alt, 'a cat');
+      expect(restored.media.first.hasAlt, isTrue);
+      expect(restored.media.last.hasAlt, isFalse);
       expect(restored.repostedBy, 'Bob');
       expect(restored.likes, 5);
       expect(restored.nativeId, 'at://did/app.bsky.feed.post/1');
@@ -51,6 +57,19 @@ void main() {
       // Reloading a saved post must not quietly strip its content warning.
       final restored = FeedItem.fromJson(sample().toJson());
       expect(restored.needsReveal, isTrue);
+    });
+
+    test('reads media from posts saved before alt text existed', () {
+      // Older saves stored bare URLs under imageUrls.
+      final restored = FeedItem.fromJson({
+        'id': 'legacy',
+        'network': 'reddit',
+        'author': 'a',
+        'createdAt': '2026-08-05T00:00:00Z',
+        'imageUrls': ['https://cdn/old.jpg'],
+      });
+      expect(restored.imageUrls, ['https://cdn/old.jpg']);
+      expect(restored.media.single.hasAlt, isFalse);
     });
 
     test('tolerates a minimal payload', () {

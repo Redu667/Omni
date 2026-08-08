@@ -81,14 +81,16 @@ class TwitterClient extends SourceClient {
     final metrics =
         tweet['public_metrics'] as Map<String, dynamic>? ?? const {};
 
-    final images = <String>[];
+    final images = <MediaItem>[];
     final mediaKeys = ((tweet['attachments'] as Map<String, dynamic>?)?['media_keys']
             as List? ??
         const []);
     for (final key in mediaKeys) {
       final m = media[key];
       final url = (m?['url'] ?? m?['preview_image_url']) as String?;
-      if (url != null) images.add(url);
+      if (url != null) {
+        images.add(MediaItem(url: url, alt: m?['alt_text'] as String?));
+      }
     }
 
     return FeedItem(
@@ -102,7 +104,7 @@ class TwitterClient extends SourceClient {
       url: username.isNotEmpty
           ? 'https://x.com/$username/status/${tweet['id']}'
           : null,
-      imageUrls: images,
+      media: images,
       likes: metrics['like_count'] as int?,
       reposts: metrics['retweet_count'] as int?,
       replies: metrics['reply_count'] as int?,

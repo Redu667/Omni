@@ -12,6 +12,23 @@ import 'source_client.dart';
 class BlueskyClient extends SourceClient {
   const BlueskyClient(super.source, super.httpClient);
 
+  /// Labels Bluesky's own moderation treats as adult content.
+  static const _adultLabels = {
+    'porn',
+    'sexual',
+    'nudity',
+    'graphic-media',
+    'gore',
+    'nsfl',
+  };
+
+  static String _labelLabel(String val) => switch (val) {
+        'porn' || 'sexual' => 'Adult content',
+        'nudity' => 'Nudity',
+        'graphic-media' || 'gore' || 'nsfl' => 'Graphic media',
+        _ => 'Labelled: $val',
+      };
+
   static const _publicHost = 'public.api.bsky.app';
   static const _authHost = 'bsky.social';
 
@@ -104,23 +121,35 @@ class BlueskyClient extends SourceClient {
   }
 
   @override
-  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
+  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
     final uri = item.nativeId;
-    if (uri == null) return const [];
+    if (uri == null) return PostThread.empty;
 
     final res = await httpClient.get(
       Uri.https(_publicHost, '/xrpc/app.bsky.feed.getPostThread',
-          {'uri': uri, 'depth': '6'}),
+          {'uri': uri, 'depth': '6', 'parentHeight': '10'}),
     );
-    if (res.statusCode != 200) return const [];
+    if (res.statusCode != 200) return PostThread.empty;
 
     final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     final thread = body['thread'] as Map<String, dynamic>?;
-    if (thread == null) return const [];
+    if (thread == null) return PostThread.empty;
 
     final entries = <ThreadEntry>[];
     _collectReplies(thread['replies'] as List?, 0, entries, limit);
-    return entries;
+
+    // Walk up the parent chain, then reverse so it reads oldest first.
+    final ancestors = <FeedItem>[];
+    var parent = thread['parent'] as Map<String, dynamic>?;
+    while (parent != null && parent['post'] != null && ancestors.length < 20) {
+      ancestors.add(_toItem({'post': parent['post']}));
+      parent = parent['parent'] as Map<String, dynamic>?;
+    }
+
+    return PostThread(
+      ancestors: ancestors.reversed.toList(growable: false),
+      replies: entries,
+    );
   }
 
   /// Bluesky nests replies inside each post, so flatten depth-first.
@@ -148,16 +177,31 @@ class BlueskyClient extends SourceClient {
       repostedBy = by?['displayName'] as String? ?? by?['handle'] as String?;
     }
 
-    final images = <String>[];
+    final images = <MediaItem>[];
     final embed = post['embed'] as Map<String, dynamic>?;
     if (embed != null) {
       final list = (embed['images'] ??
           (embed['media'] as Map<String, dynamic>?)?['images']) as List?;
       for (final img in list ?? const []) {
-        final thumb = (img as Map<String, dynamic>)['thumb'] as String?;
-        if (thumb != null) images.add(thumb);
+        final image = img as Map<String, dynamic>;
+        final thumb = image['thumb'] as String?;
+        if (thumb != null) {
+          images.add(MediaItem(url: thumb, alt: image['alt'] as String?));
+        }
       }
     }
+
+    // Bluesky moderation happens through labels. Ignoring them means
+    // bypassing the network's own content controls, so treat the adult
+    // ones as a reason to hide the post until asked.
+    final labels = (post['labels'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map((l) => l['val'] as String?)
+        .whereType<String>()
+        .toList();
+    final adultLabel = labels
+        .where((l) => _adultLabels.contains(l))
+        .firstOrNull;
 
     final handle = author['handle'] as String? ?? '';
     final uriParts = (post['uri'] as String? ?? '').split('/');
@@ -175,7 +219,9 @@ class BlueskyClient extends SourceClient {
           ? 'https://bsky.app/profile/$handle/post/$rkey'
           : null,
       nativeId: post['uri'] as String?,
-      imageUrls: images,
+      media: images,
+      contentWarning: adultLabel == null ? null : _labelLabel(adultLabel),
+      sensitive: adultLabel != null,
       repostedBy: repostedBy,
       likes: post['likeCount'] as int?,
       reposts: post['repostCount'] as int?,

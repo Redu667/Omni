@@ -45,11 +45,11 @@ abstract class SourceClient {
   Future<List<FeedItem>> fetchLatest({int limit = 40}) async =>
       (await fetchPage(limit: limit)).items;
 
-  /// Replies to [item], flattened with nesting depth. Networks that have no
-  /// notion of a thread (RSS) return nothing, which the detail view treats
-  /// as "no discussion", not as a failure.
-  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async =>
-      const [];
+  /// The conversation around [item] — what it replied to, and the replies
+  /// beneath it. Networks with no notion of a thread (RSS) return nothing,
+  /// which the detail view treats as "no discussion", not as a failure.
+  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async =>
+      PostThread.empty;
 
   /// Recent posts by whoever wrote [item]. Networks with no concept of an
   /// author feed (RSS) return nothing.

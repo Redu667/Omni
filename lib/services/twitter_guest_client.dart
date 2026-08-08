@@ -38,8 +38,14 @@ class TwitterGuestClient extends SourceClient {
 
   static const _host = 'api.twitter.com';
 
+  /// True when the source follows the signed-in account's own timeline
+  /// rather than a list of usernames.
+  bool get _isHomeFeed => source.params['feed'] == 'home';
+
   @override
   Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
+    if (_isHomeFeed) return _fetchHomeTimeline(limit: limit, cursor: cursor);
+
     final usernames = (source.params['usernames'] ?? '')
         .split(RegExp(r'[,\s]+'))
         .where((u) => u.isNotEmpty)
@@ -105,6 +111,65 @@ class TwitterGuestClient extends SourceClient {
     return SourcePage(
       items: items,
       nextCursor: nextCursors.isEmpty ? null : _encodeCursors(nextCursors),
+    );
+  }
+
+  /// The signed-in account's own timeline. Needs a session — X has no
+  /// notion of a guest's home feed.
+  Future<SourcePage> _fetchHomeTimeline(
+      {int limit = 40, String? cursor}) async {
+    if (!_authenticated) {
+      throw SourceFetchException(
+        source.displayName,
+        'Your home timeline needs a signed-in account. Sign in from '
+        'Settings → Twitter (X) access, or switch this source to follow '
+        'specific usernames instead.',
+      );
+    }
+
+    final Map<String, dynamic> body;
+    try {
+      body = await _graphql(
+        queryId: config.homeTimelineQueryId,
+        operation: 'HomeTimeline',
+        variables: {
+          'count': limit,
+          if (cursor != null) 'cursor': cursor,
+          'includePromotedContent': false,
+          'latestControlAvailable': true,
+          'withCommunity': true,
+        },
+      );
+    } on TwitterGuestException catch (e) {
+      throw SourceFetchException(source.displayName, e.message);
+    }
+
+    // The home timeline nests one level deeper than a user's.
+    final instructions = (_dig(body,
+                ['data', 'home', 'home_timeline_urt', 'instructions'])
+            as List?) ??
+        const [];
+
+    final items = <FeedItem>[];
+    String? bottomCursor;
+    for (final instruction in instructions.cast<Map<String, dynamic>>()) {
+      if (instruction['type'] != 'TimelineAddEntries') continue;
+      for (final entry in (instruction['entries'] as List? ?? const [])
+          .cast<Map<String, dynamic>>()) {
+        final entryId = entry['entryId'] as String? ?? '';
+        if (entryId.startsWith('cursor-bottom')) {
+          bottomCursor =
+              _dig(entry, ['content', 'value']) as String? ?? bottomCursor;
+          continue;
+        }
+        items.addAll(_itemsFromEntry(entry));
+      }
+    }
+
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return SourcePage(
+      items: items,
+      nextCursor: items.isEmpty ? null : bottomCursor,
     );
   }
 
@@ -287,9 +352,13 @@ class TwitterGuestClient extends SourceClient {
       url: screenName.isNotEmpty && restId != null
           ? 'https://x.com/$screenName/status/$restId'
           : null,
-      imageUrls: [
+      media: [
         for (final m in media)
-          if (m['media_url_https'] != null) m['media_url_https'] as String,
+          if (m['media_url_https'] != null)
+            MediaItem(
+              url: m['media_url_https'] as String,
+              alt: m['ext_alt_text'] as String?,
+            ),
       ],
       repostedBy: repostedBy,
       likes: legacy['favorite_count'] as int?,

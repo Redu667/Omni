@@ -24,7 +24,7 @@ class PostDetailScreen extends StatefulWidget {
 }
 
 class _PostDetailScreenState extends State<PostDetailScreen> {
-  List<ThreadEntry>? _thread;
+  PostThread? _thread;
   bool _loading = true;
   String? _threadError;
 
@@ -73,7 +73,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Widget build(BuildContext context) {
     final item = widget.item;
     final theme = Theme.of(context);
-    final thread = _thread ?? const <ThreadEntry>[];
+    final thread = _thread ?? PostThread.empty;
+    final ancestors = thread.ancestors;
+    final replies = thread.replies;
 
     return Scaffold(
       appBar: AppBar(
@@ -107,27 +109,32 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         onRefresh: _loadThread,
         child: ListView.builder(
           padding: const EdgeInsets.only(bottom: 32),
-          itemCount: thread.length + 2,
+          itemCount: ancestors.length + replies.length + 2,
           itemBuilder: (context, index) {
-            if (index == 0) {
+            // What this post was replying to, oldest first.
+            if (index < ancestors.length) {
+              return _AncestorTile(item: ancestors[index], theme: theme);
+            }
+            final offset = index - ancestors.length;
+            if (offset == 0) {
               return _PostBody(
                 item: item,
+                isReply: ancestors.isNotEmpty,
                 onOpenOriginal: () => _openOriginal(
                   external: !context.read<AppState>().openInApp,
                 ),
               );
             }
-            if (index == 1) {
+            if (offset == 1) {
               return _ThreadHeader(
                 loading: _loading,
                 error: _threadError,
-                count: thread.length,
+                count: replies.length,
                 network: item.network,
                 onRetry: _loadThread,
               );
             }
-            final entry = thread[index - 2];
-            return _ReplyTile(entry: entry, theme: theme);
+            return _ReplyTile(entry: replies[offset - 2], theme: theme);
           },
         ),
       ),
@@ -136,10 +143,17 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 }
 
 class _PostBody extends StatefulWidget {
-  const _PostBody({required this.item, required this.onOpenOriginal});
+  const _PostBody({
+    required this.item,
+    required this.onOpenOriginal,
+    this.isReply = false,
+  });
 
   final FeedItem item;
   final VoidCallback onOpenOriginal;
+
+  /// True when something is displayed above, so the post reads as an answer.
+  final bool isReply;
 
   @override
   State<_PostBody> createState() => _PostBodyState();
@@ -154,8 +168,16 @@ class _PostBodyState extends State<_PostBody> {
     final item = widget.item;
     final hidden = item.needsReveal && !_revealed;
 
-    return Padding(
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      decoration: widget.isReply
+          ? BoxDecoration(
+              border: Border(
+                top: BorderSide(color: theme.colorScheme.outlineVariant),
+              ),
+            )
+          : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -295,21 +317,46 @@ class _PostBodyState extends State<_PostBody> {
               padding: const EdgeInsets.only(top: 16),
               child: Column(
                 children: [
-                  for (final url in item.imageUrls)
+                  for (final image in item.media)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: CachedNetworkImage(
-                          imageUrl: url,
-                          fit: BoxFit.contain,
-                          width: double.infinity,
-                          placeholder: (_, _) => Container(
-                            height: 180,
-                            color: theme.colorScheme.surfaceContainerHighest,
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Semantics(
+                              label: image.alt,
+                              image: true,
+                              child: CachedNetworkImage(
+                                imageUrl: image.url,
+                                fit: BoxFit.contain,
+                                width: double.infinity,
+                                placeholder: (_, _) => Container(
+                                  height: 180,
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
+                                ),
+                                errorWidget: (_, _, _) =>
+                                    const SizedBox.shrink(),
+                              ),
+                            ),
                           ),
-                          errorWidget: (_, _, _) => const SizedBox.shrink(),
-                        ),
+                          // Alt text is the author describing their own
+                          // image; showing it is useful to everyone, not
+                          // only to screen readers.
+                          if (image.hasAlt)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                image.alt!,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                 ],
@@ -535,6 +582,60 @@ class _Stat extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// A post further up the conversation, shown above the one being viewed so
+/// a reply isn't an answer with no question.
+class _AncestorTile extends StatelessWidget {
+  const _AncestorTile({required this.item, required this.theme});
+
+  final FeedItem item;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => PostDetailScreen(item: item)),
+      ),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: theme.colorScheme.outlineVariant, width: 2),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(item.handle ?? item.author,
+                      style: theme.textTheme.labelLarge,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                Text('in reply to',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: theme.colorScheme.outline)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.needsReveal
+                  ? (item.contentWarning ?? 'Marked sensitive')
+                  : item.text,
+              style: theme.textTheme.bodyMedium,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }

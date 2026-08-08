@@ -163,7 +163,7 @@ class RedditClient extends SourceClient {
             title: htmlToPlainText(text('title')),
             url: link,
             nativeId: link,
-            imageUrls: [if (image != null) image],
+            media: [if (image != null) MediaItem(url: image)],
             context: 'r/$subreddit',
             createdAt: DateTime.tryParse(
                         text('updated').isNotEmpty
@@ -199,12 +199,12 @@ class RedditClient extends SourceClient {
   }
 
   @override
-  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
+  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
     final permalink = item.nativeId ?? item.url;
-    if (permalink == null) return const [];
+    if (permalink == null) return PostThread.empty;
 
     final path = Uri.tryParse(permalink)?.path;
-    if (path == null || path.isEmpty) return const [];
+    if (path == null || path.isEmpty) return PostThread.empty;
 
     for (final host in _hosts) {
       final res = await httpClient.get(
@@ -225,6 +225,7 @@ class RedditClient extends SourceClient {
       if (decoded is! List || decoded.length < 2) continue;
       final listings = decoded;
 
+
       final entries = <ThreadEntry>[];
       _collectComments(
         (listings[1] as Map<String, dynamic>)['data'] as Map<String, dynamic>?,
@@ -232,9 +233,10 @@ class RedditClient extends SourceClient {
         entries,
         limit,
       );
-      return entries;
+      // A Reddit post is always the root of its own thread.
+      return PostThread(replies: entries);
     }
-    return const [];
+    return PostThread.empty;
   }
 
   /// Reddit nests replies as listings inside each comment, so walk down and
@@ -312,17 +314,17 @@ class RedditClient extends SourceClient {
   }
 
   FeedItem _toItem(Map<String, dynamic> post) {
-    final images = <String>[];
+    final images = <MediaItem>[];
     final preview = post['preview'] as Map<String, dynamic>?;
     final previewImages = preview?['images'] as List?;
     if (previewImages != null && previewImages.isNotEmpty) {
       final url = ((previewImages.first as Map<String, dynamic>)['source']
           as Map<String, dynamic>?)?['url'] as String?;
-      if (url != null) images.add(url);
+      if (url != null) images.add(MediaItem(url: url));
     } else {
       final direct = post['url_overridden_by_dest'] as String? ?? '';
       if (RegExp(r'\.(png|jpe?g|gif|webp)$').hasMatch(direct)) {
-        images.add(direct);
+        images.add(MediaItem(url: direct));
       }
     }
 
@@ -340,7 +342,7 @@ class RedditClient extends SourceClient {
       nativeId: post['permalink'] as String?,
       fullText: selftext.isNotEmpty ? selftext : null,
       sensitive: post['over_18'] as bool? ?? false,
-      imageUrls: images,
+      media: images,
       likes: post['ups'] as int?,
       replies: post['num_comments'] as int?,
       context: 'r/${post['subreddit'] ?? source.params['subreddit']}',

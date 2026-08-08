@@ -11,6 +11,32 @@ class SettingsStore {
   static const _filtersKey = 'omni_feed_filters_v1';
   static const _themeKey = 'omni_theme_mode';
   static const _dynamicColourKey = 'omni_dynamic_colour';
+  static const _readKey = 'omni_read_ids';
+  static const _hideReadKey = 'omni_hide_read';
+
+  /// Ids of posts already read. Capped, because this grows forever
+  /// otherwise and old ids stop mattering once they leave the feed.
+  Future<Set<String>> loadReadIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_readKey) ?? const []).toSet();
+  }
+
+  Future<void> saveReadIds(Set<String> ids, {int cap = 2000}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = ids.toList();
+    await prefs.setStringList(
+        _readKey, list.length <= cap ? list : list.sublist(list.length - cap));
+  }
+
+  Future<bool> loadHideRead() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_hideReadKey) ?? false;
+  }
+
+  Future<void> saveHideRead(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_hideReadKey, value);
+  }
 
   Future<bool> loadDynamicColour() async {
     final prefs = await SharedPreferences.getInstance();

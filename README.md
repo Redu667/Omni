@@ -28,6 +28,12 @@ Moshidon, but spanning multiple networks.
   on Mastodon, Bluesky, Reddit or X.
 - **Save posts** — long-press to keep one. Saved posts are stored in full, so
   they stay readable after the source is removed or the original is deleted.
+- **Works offline** — the timeline is cached to disk and shown the moment you
+  open the app; a failed refresh keeps what you had instead of blanking.
+- **Read state** — opening a post marks it read; read posts dim, or hide
+  entirely if you prefer, with mark-all-read a tap away.
+- **Alt text** — image descriptions are carried through from Mastodon,
+  Bluesky and X, shown under the image and exposed to screen readers.
 - **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
 - **Content warnings honoured** — Mastodon spoilers and Reddit's over-18 flag
   hide a post's body and media behind a reveal rather than showing content the

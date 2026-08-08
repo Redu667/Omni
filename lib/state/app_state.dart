@@ -4,6 +4,7 @@ import '../models/feed_item.dart';
 import '../models/feed_filters.dart';
 import '../models/feed_source.dart';
 import '../models/network.dart';
+import '../services/feed_cache.dart';
 import '../services/feed_repository.dart';
 import '../services/saved_store.dart';
 import '../services/source_store.dart';
@@ -21,13 +22,15 @@ class AppState extends ChangeNotifier {
     SettingsStore? settingsStore,
     TwitterSessionStore? twitterSessionStore,
     SavedStore? savedStore,
+    FeedCache? cache,
   })  : _repository = repository ?? FeedRepository(),
         _store = store ?? SourceStore(),
         _validator = validator ?? SourceValidator(),
         _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore(),
         _settingsStore = settingsStore ?? SettingsStore(),
         _twitterSessionStore = twitterSessionStore ?? TwitterSessionStore(),
-        _savedStore = savedStore ?? SavedStore();
+        _savedStore = savedStore ?? SavedStore(),
+        _cache = cache ?? FeedCache();
 
   final FeedRepository _repository;
   final SourceStore _store;
@@ -36,6 +39,41 @@ class AppState extends ChangeNotifier {
   final SettingsStore _settingsStore;
   final TwitterSessionStore _twitterSessionStore;
   final SavedStore _savedStore;
+  final FeedCache _cache;
+
+  Set<String> _readIds = {};
+  bool _hideRead = false;
+
+  bool isRead(FeedItem item) => _readIds.contains(item.id);
+
+  /// Whether read posts are hidden outright rather than just dimmed.
+  bool get hideRead => _hideRead;
+
+  int get unreadCount =>
+      _visibleItems.where((i) => !_readIds.contains(i.id)).length;
+
+  Future<void> setHideRead(bool value) async {
+    _hideRead = value;
+    await _settingsStore.saveHideRead(value);
+    notifyListeners();
+  }
+
+  Future<void> markRead(FeedItem item) async {
+    if (!_readIds.add(item.id)) return;
+    await _settingsStore.saveReadIds(_readIds);
+    notifyListeners();
+  }
+
+  Future<void> markAllRead() async {
+    _readIds = {..._readIds, ..._items.map((i) => i.id)};
+    await _settingsStore.saveReadIds(_readIds);
+    notifyListeners();
+  }
+
+  /// True when the timeline on screen came from disk rather than the
+  /// network, so the UI can say so rather than implying it is current.
+  bool _fromCache = false;
+  bool get showingCached => _fromCache;
 
   List<FeedItem> _saved = [];
 
@@ -202,14 +240,29 @@ class AppState extends ChangeNotifier {
   bool get hasMore => _cursors.isNotEmpty;
   Network? get filter => _filter;
 
-  List<FeedItem> get items => List.unmodifiable(_items.where((i) =>
-      (_filter == null || i.network == _filter) && !_filters.hides(i)));
+  /// Everything that passes the network chip and mute filters, before
+  /// read-hiding — so the unread count doesn't change as posts are hidden.
+  Iterable<FeedItem> get _visibleItems => _items.where((i) =>
+      (_filter == null || i.network == _filter) && !_filters.hides(i));
+
+  List<FeedItem> get items => List.unmodifiable(
+      _hideRead ? _visibleItems.where((i) => !_readIds.contains(i.id))
+                : _visibleItems);
 
   /// Networks that currently have at least one configured source.
   Set<Network> get activeNetworks => _sources.map((s) => s.network).toSet();
 
   Future<void> init() async {
     _sources = await _store.load();
+    _readIds = await _settingsStore.loadReadIds();
+    _hideRead = await _settingsStore.loadHideRead();
+
+    // Show the cached timeline immediately; the network refresh follows.
+    final cached = await _cache.load();
+    if (cached.isNotEmpty) {
+      _items = cached;
+      _fromCache = true;
+    }
     _twitterConfig = await _twitterConfigStore.load();
     _openInApp = await _settingsStore.loadOpenInApp();
     _filters = await _settingsStore.loadFilters();
@@ -222,7 +275,7 @@ class AppState extends ChangeNotifier {
     if (_sources.isNotEmpty) await refresh();
   }
 
-  Future<List<ThreadEntry>> fetchThread(FeedItem item) =>
+  Future<PostThread> fetchThread(FeedItem item) =>
       _repository.fetchThread(item, _sources,
           twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
 
@@ -243,11 +296,21 @@ class AppState extends ChangeNotifier {
 
     final result = await _repository.fetchAll(_sources,
         twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
+    // A refresh that failed everywhere shouldn't wipe a usable cache.
+    if (result.items.isEmpty && result.errors.isNotEmpty && _items.isNotEmpty) {
+      _errors = result.errors;
+      _loading = false;
+      notifyListeners();
+      return;
+    }
+
     _items = result.items;
     _errors = result.errors;
     _cursors = result.cursors;
+    _fromCache = false;
     _loading = false;
     notifyListeners();
+    await _cache.save(_items);
   }
 
   /// Appends the next page from every source that still has one.
@@ -274,6 +337,7 @@ class AppState extends ChangeNotifier {
     if (result.errors.isNotEmpty) _errors = result.errors;
     _loadingMore = false;
     notifyListeners();
+    await _cache.save(_items);
   }
 
   /// Test-fetches the source first; throws [SourceFetchException] with a

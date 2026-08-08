@@ -1,5 +1,26 @@
 import 'network.dart';
 
+/// An image attached to a post, with the author's description of it.
+///
+/// Alt text is carried rather than discarded: Mastodon and Bluesky both have
+/// strong alt-text cultures, and dropping it makes posts unreadable to
+/// anyone using a screen reader.
+class MediaItem {
+  const MediaItem({required this.url, this.alt});
+
+  final String url;
+  final String? alt;
+
+  bool get hasAlt => alt != null && alt!.trim().isNotEmpty;
+
+  Map<String, dynamic> toJson() => {'url': url, 'alt': alt};
+
+  factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
+        url: json['url'] as String,
+        alt: json['alt'] as String?,
+      );
+}
+
 /// A single post/entry normalized from any network into one shape.
 class FeedItem {
   FeedItem({
@@ -13,7 +34,7 @@ class FeedItem {
     this.title,
     this.text = '',
     this.url,
-    this.imageUrls = const [],
+    this.media = const [],
     this.repostedBy,
     this.likes,
     this.reposts,
@@ -42,7 +63,11 @@ class FeedItem {
 
   /// Permalink to open in a browser.
   final String? url;
-  final List<String> imageUrls;
+
+  final List<MediaItem> media;
+
+  /// Just the URLs, for the many places that only need those.
+  List<String> get imageUrls => [for (final m in media) m.url];
 
   /// Who boosted/reposted this into the timeline, if anyone.
   final String? repostedBy;
@@ -90,7 +115,7 @@ class FeedItem {
         'title': title,
         'text': text,
         'url': url,
-        'imageUrls': imageUrls,
+        'media': [for (final m in media) m.toJson()],
         'repostedBy': repostedBy,
         'likes': likes,
         'reposts': reposts,
@@ -113,8 +138,13 @@ class FeedItem {
         title: json['title'] as String?,
         text: json['text'] as String? ?? '',
         url: json['url'] as String?,
-        imageUrls:
-            (json['imageUrls'] as List? ?? const []).cast<String>().toList(),
+        media: [
+          for (final m in (json['media'] as List? ?? const []))
+            MediaItem.fromJson((m as Map).cast<String, dynamic>()),
+          // Posts saved before alt text existed stored bare URLs.
+          for (final u in (json['imageUrls'] as List? ?? const []))
+            MediaItem(url: u as String),
+        ],
         repostedBy: json['repostedBy'] as String?,
         likes: json['likes'] as int?,
         reposts: json['reposts'] as int?,
@@ -137,4 +167,20 @@ class ThreadEntry {
 
   final FeedItem item;
   final int depth;
+}
+
+/// The conversation around a post: what it was replying to, and what
+/// replied to it.
+class PostThread {
+  const PostThread({this.ancestors = const [], this.replies = const []});
+
+  static const empty = PostThread();
+
+  /// Oldest first, ending with the post's direct parent. Without these,
+  /// opening a reply shows an answer with no question.
+  final List<FeedItem> ancestors;
+
+  final List<ThreadEntry> replies;
+
+  bool get isEmpty => ancestors.isEmpty && replies.isEmpty;
 }

@@ -28,6 +28,18 @@ class HomeScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const SavedScreen()),
               ),
             ),
+          if (state.unreadCount > 0)
+            IconButton(
+              icon: const Icon(Icons.done_all),
+              tooltip: 'Mark all as read',
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final count = state.unreadCount;
+                await state.markAllRead();
+                messenger.showSnackBar(
+                    SnackBar(content: Text('Marked $count as read')));
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
@@ -162,6 +174,25 @@ class _FeedState extends State<_Feed> {
                   child: const Text('Retry'),
                 ),
               ],
+            ),
+          if (state.showingCached)
+            Container(
+              width: double.infinity,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.history,
+                      size: 15, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Showing your last saved timeline — pull to refresh.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
             ),
           if (state.hiddenCount > 0)
             Padding(

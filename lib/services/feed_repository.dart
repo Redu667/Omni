@@ -39,14 +39,14 @@ class FeedRepository {
   final _twitterSession = TwitterGuestSession();
 
   /// Replies to [item], asked of whichever source produced it.
-  Future<List<ThreadEntry>> fetchThread(
+  Future<PostThread> fetchThread(
     FeedItem item,
     List<FeedSource> sources, {
     TwitterGuestConfig? twitterConfig,
     TwitterSession? twitterAccount,
   }) async {
     final source = sources.where((s) => s.id == item.sourceId).firstOrNull;
-    if (source == null) return const [];
+    if (source == null) return PostThread.empty;
 
     return SourceClient.forSource(
       source,

@@ -2,7 +2,7 @@ name: omni
 description: "Omni — a unified multi-platform social feed: Mastodon, Bluesky, Reddit, Twitter/X and RSS in one timeline."
 publish_to: 'none'
 
-version: 0.7.0+8
+version: 0.8.0+9
 
 environment:
   sdk: ^3.8.1
@@ -26,6 +26,7 @@ dependencies:
   webview_flutter: ^4.10.0
   flutter_inappwebview: ^6.1.5
   dynamic_color: ^1.7.0
+  path_provider: ^2.1.4
 
 dev_dependencies:
   flutter_test:

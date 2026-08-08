@@ -56,9 +56,9 @@ class MastodonClient extends SourceClient {
   }
 
   @override
-  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async {
+  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
     final statusId = item.nativeId;
-    if (statusId == null) return const [];
+    if (statusId == null) return PostThread.empty;
 
     final instance =
         source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
@@ -70,11 +70,15 @@ class MastodonClient extends SourceClient {
         if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
       },
     );
-    if (res.statusCode != 200) return const [];
+    if (res.statusCode != 200) return PostThread.empty;
 
     final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
     final descendants =
         (body['descendants'] as List? ?? const []).cast<Map<String, dynamic>>();
+    // The context call returns these too; they were previously thrown away,
+    // which left a reply displayed with nothing to reply to.
+    final ancestors =
+        (body['ancestors'] as List? ?? const []).cast<Map<String, dynamic>>();
 
     // Mastodon returns a flat list; depth comes from following in_reply_to_id
     // back towards the post being viewed.
@@ -88,7 +92,11 @@ class MastodonClient extends SourceClient {
       depths[id] = depth;
       entries.add(ThreadEntry(depth: depth, item: _toItem(status)));
     }
-    return entries;
+
+    return PostThread(
+      ancestors: ancestors.map(_toItem).toList(growable: false),
+      replies: entries,
+    );
   }
 
   @override
@@ -162,10 +170,13 @@ class MastodonClient extends SourceClient {
           ? (s['spoiler_text'] as String).trim()
           : null,
       sensitive: s['sensitive'] as bool? ?? false,
-      imageUrls: [
+      media: [
         for (final m in media)
           if (m['type'] == 'image' && m['preview_url'] != null)
-            m['preview_url'] as String,
+            MediaItem(
+              url: m['preview_url'] as String,
+              alt: m['description'] as String?,
+            ),
       ],
       repostedBy: repostedBy,
       likes: s['favourites_count'] as int?,

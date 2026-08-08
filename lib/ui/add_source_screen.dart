@@ -112,6 +112,9 @@ class _SourceFormState extends State<_SourceForm> {
   /// Which Reddit listing to pull. Matches Reddit's own default.
   String _redditSort = 'hot';
 
+  /// X sources either follow named accounts or your own home timeline.
+  bool _twitterHome = false;
+
   // Mastodon OAuth state, alive while the browser round-trip is in flight.
   final _oauth = MastodonOAuth(http.Client());
   StreamSubscription<Uri>? _linkSub;
@@ -139,8 +142,9 @@ class _SourceFormState extends State<_SourceForm> {
                 hint: 'flutter or flutter+androiddev', required: true),
           ],
         Network.twitter => [
-            const _FieldSpec('usernames', 'Usernames',
-                hint: 'nasa, flutterdev', required: true),
+            if (!_twitterHome)
+              const _FieldSpec('usernames', 'Usernames',
+                  hint: 'nasa, flutterdev', required: true),
             if (_twitterOfficial)
               const _FieldSpec('bearerToken', 'API bearer token',
                   hint: 'From developer.x.com (paid read access)',
@@ -244,7 +248,9 @@ class _SourceFormState extends State<_SourceForm> {
         Network.reddit => params['sort'] == null || params['sort'] == 'hot'
             ? 'r/${params['subreddit']}'
             : 'r/${params['subreddit']} · ${params['sort']}',
-        Network.twitter => 'X · ${params['usernames']}',
+        Network.twitter => _twitterHome
+            ? 'X · home timeline'
+            : 'X · ${params['usernames']}',
         Network.rss => Uri.tryParse(params['url'] ?? '')?.host ?? 'RSS feed',
       };
 
@@ -261,6 +267,7 @@ class _SourceFormState extends State<_SourceForm> {
     }
     if (widget.network == Network.twitter) {
       params['mode'] = _twitterOfficial ? 'official' : 'guest';
+      params['feed'] = _twitterHome ? 'home' : 'users';
     }
     if (widget.network == Network.reddit) {
       params['sort'] = _redditSort;
@@ -372,6 +379,19 @@ class _SourceFormState extends State<_SourceForm> {
                     setState(() => _redditSort = v ?? 'hot'),
               ),
             ),
+          if (widget.network == Network.twitter && !_twitterOfficial) ...[
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.home_outlined),
+              title: const Text('My home timeline'),
+              subtitle: const Text(
+                  'The feed X shows you when signed in, instead of specific '
+                  'accounts. Requires signing in.'),
+              value: _twitterHome,
+              onChanged: (v) => setState(() => _twitterHome = v),
+            ),
+            const SizedBox(height: 8),
+          ],
           if (widget.network == Network.twitter) ...[
             SegmentedButton<bool>(
               segments: const [

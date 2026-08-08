@@ -19,7 +19,7 @@ import 'twitter_settings_screen.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const _version = '0.7.0';
+  static const _version = '0.8.0';
 
   Future<void> _importOpml(BuildContext context) async {
     final state = context.read<AppState>();
@@ -175,6 +175,15 @@ class SettingsScreen extends StatelessWidget {
           ),
 
           _SectionHeader('Reading'),
+          SwitchListTile(
+            secondary: const Icon(Icons.mark_email_read_outlined),
+            title: const Text('Hide posts you have read'),
+            subtitle: const Text(
+                'Off dims them instead of removing them. Opening a post '
+                'marks it read.'),
+            value: state.hideRead,
+            onChanged: state.setHideRead,
+          ),
           SwitchListTile(
             secondary: const Icon(Icons.open_in_new),
             title: const Text('Open originals in Omni'),

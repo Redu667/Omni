@@ -16,14 +16,14 @@ whether Omni is usable as a daily reader at all.
 | Gap | Status | Notes |
 |---|---|---|
 | **Pagination / infinite scroll** | ✓ | Each network is paged with its own cursor (Mastodon `max_id`, Reddit `after`, Bluesky/X tokens); sources drop out as they run out. RSS is the exception — feeds publish a fixed window with no way to ask for older entries. |
-| **Offline cache** | ✗ | Nothing is persisted. Every launch refetches from scratch; with no signal there is no feed at all, and a refresh discards what you were reading. |
-| **Read / unread state** | ✗ | No notion of what you've already seen, so refreshing loses your place. Feed readers live on this. |
+| **Offline cache** | ✓ | The timeline is kept on disk and shown instantly at launch, with a banner while it's stale. A refresh that fails everywhere keeps the cache rather than blanking the feed. |
+| **Read / unread state** | ◐ | Opening a post marks it read; read posts dim, or hide entirely by choice, and there's mark-all-read. Not yet: marking read by scrolling past. |
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
 | **Search** | ✗ | Neither within the loaded feed nor against each network's search API. |
-| **Image viewer** | ✗ | Images are fixed-height crops; no tap-to-zoom, no pan, no swiping a gallery, no saving. Only the *first* image of a multi-image post is shown at all. |
+| **Image viewer** | ◐ | The detail view shows every image; the timeline shows the first with a count badge. Still no tap-to-zoom, pan, or saving. |
 | **Video** | ✗ | No playback anywhere. Reddit `v.redd.it`, Mastodon and Bluesky video, and X video are all silently dropped. |
-| **Alt text** | ✗ | Never displayed, and never surfaced to screen readers. Both Mastodon and Bluesky have strong alt-text cultures, so this is a real accessibility gap. |
+| **Alt text** | ✓ | Carried from Mastodon, Bluesky and X, shown under each image in the detail view, exposed to screen readers, and flagged with an ALT badge in the timeline. |
 | **Link preview cards** | ✗ | Link posts show a bare URL rather than title/description/thumbnail. |
 | **Share sheet** | ✗ | Can copy a link from the detail menu; can't share to another app. |
 | **Content warnings** | ✓ | Mastodon spoilers and Reddit `over_18` hide the body behind a reveal. |
@@ -44,7 +44,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | Home timeline | ✓ | Via OAuth sign-in. |
 | Public / local timeline | ✓ | No account needed. |
 | Content warnings | ✓ | |
-| **Thread parent context** | ✗ | The detail view fetches `descendants` but ignores `ancestors`, so opening a reply shows the replies *to* it and never what it was replying to. The API call already returns this — it's discarded. |
+| **Thread parent context** | ✓ | Ancestors are shown above the post, tappable to walk up the conversation. |
 | **Polls** | ✗ | Poll posts render as empty text. |
 | **Custom emoji** | ✗ | `:shortcodes:` show as literal text instead of the instance's emoji. |
 | **Interactions** | ✗ | No favourite, boost, reply, or follow. Omni is read-only by design, but favouriting is the one most readers expect. |
@@ -70,8 +70,8 @@ Closest comparison: the official app, Graysky, deck.blue.
 | **Lists** | ✗ | No list timelines or moderation lists. |
 | **Quote posts** | ✗ | The quoted post isn't rendered; only the commentary shows, which can invert the meaning. |
 | **External embed cards** | ✗ | Link embeds are dropped rather than shown as cards. |
-| **Labels & moderation** | ✗ | Labeler annotations (including adult-content labels) are ignored, so Bluesky's own moderation is bypassed. Worth treating as a correctness issue, not a feature. |
-| **Thread parent context** | ✗ | Same gap as Mastodon: replies shown, parents not. |
+| **Labels & moderation** | ◐ | Adult and graphic-media labels hide the post behind a reveal. Custom labeler subscriptions and per-label preferences aren't supported. |
+| **Thread parent context** | ✓ | The parent chain is walked and shown oldest-first. |
 | **Interactions** | ✗ | No like, repost, reply, or follow. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
 | **Video** | ✗ | |
@@ -111,7 +111,7 @@ Closest comparison: Squawker; historically Tweetbot and Talon.
 |---|---|---|
 | User timelines | ✓ | Via signed-in session. |
 | Stale-data detection | ✓ | Refuses to present a stale timeline as current. |
-| **Home timeline** | ✗ | Omni is signed in, so `HomeTimeline` is available — it just isn't wired up. Probably the cheapest high-value win on this list. |
+| **Home timeline** | ✓ | A Twitter source can follow your own timeline instead of named accounts, when signed in. |
 | **Quote tweets** | ✗ | Quoted post not rendered. |
 | **Conversation threads** | ✗ | `fetchThread` isn't implemented for X at all; replies are unavailable. |
 | **Search** | ✗ | |
@@ -148,13 +148,13 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Offline cache + read state** — turns Omni from a live query into an actual reader that keeps your place. The biggest remaining gap now that paging exists.
-2. **X home timeline** — small change, large payoff, and the auth work is already done.
-3. **Thread parent context** (Mastodon + Bluesky) — a few lines each; the data is already in the responses Omni fetches and discards.
-4. **Image viewer with multi-image support** — currently the most visible day-to-day rough edge.
-5. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
-6. **Bluesky labels** — moderation currently bypassed; belongs with correctness work rather than features.
-7. **Reddit "load more" comments** — deep threads are quietly cut off today.
-8. **Alt text** — small, and an accessibility gap rather than a nicety.
-9. **Search** — across the loaded feed first, which needs no new API work.
-10. **Video playback** — big lift, touches every network.
+1. **Full-screen image viewer** — tap to zoom, swipe a gallery, save. The most visible day-to-day rough edge now.
+2. **Search** — across the loaded feed first, which needs no new API work at all.
+3. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
+4. **Reddit "load more" comments** — deep threads are quietly cut off today.
+5. **Mark read by scrolling past** — the half of read-state that's still missing.
+6. **Quote posts** (Bluesky + X) — a quote with the quoted post missing can invert its meaning.
+7. **Link preview cards** — link posts currently show a bare URL.
+8. **Background refresh & notifications** — the last thing keeping Omni a foreground-only app.
+9. **Video playback** — big lift, touches every network.
+10. **Polls** — Mastodon, Reddit and X all have them; all render as empty posts.

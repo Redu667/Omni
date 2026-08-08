@@ -64,12 +64,13 @@ void main() {
       ];
 
       final client = MockClient((_) async => http.Response(jsonEncode(payload), 200));
-      final entries = await SourceClient.forSource(
+      final thread = await SourceClient.forSource(
         src(Network.reddit, {'subreddit': 'law'}),
         client,
       ).fetchThread(itemWith(
           network: Network.reddit,
           nativeId: '/r/law/comments/x/title/'));
+      final entries = thread.replies;
 
       expect(entries.map((e) => e.item.text),
           ['top level', 'a reply', 'nested deeper', 'another top level']);
@@ -92,13 +93,13 @@ void main() {
       ];
 
       final client = MockClient((_) async => http.Response(jsonEncode(payload), 200));
-      final entries = await SourceClient.forSource(
+      final thread = await SourceClient.forSource(
         src(Network.reddit, {'subreddit': 'law'}),
         client,
       ).fetchThread(itemWith(
           network: Network.reddit, nativeId: '/r/law/comments/x/t/'));
 
-      expect(entries, hasLength(1));
+      expect(thread.replies, hasLength(1));
     });
   });
 
@@ -124,14 +125,14 @@ void main() {
 
       final client =
           MockClient((_) async => http.Response(jsonEncode(payload), 200));
-      final entries = await SourceClient.forSource(
+      final thread = await SourceClient.forSource(
         src(Network.mastodon, {'instance': 'mastodon.social'}),
         client,
       ).fetchThread(itemWith(network: Network.mastodon, nativeId: '1'));
 
-      expect(entries.map((e) => e.item.text),
+      expect(thread.replies.map((e) => e.item.text),
           ['direct reply', 'reply to the reply', 'another direct reply']);
-      expect(entries.map((e) => e.depth), [0, 1, 0]);
+      expect(thread.replies.map((e) => e.depth), [0, 1, 0]);
     });
   });
 
@@ -162,48 +163,48 @@ void main() {
 
       final client =
           MockClient((_) async => http.Response(jsonEncode(payload), 200));
-      final entries = await SourceClient.forSource(
+      final thread = await SourceClient.forSource(
         src(Network.bluesky, {'handle': 'a.bsky.social'}),
         client,
       ).fetchThread(itemWith(
           network: Network.bluesky, nativeId: 'at://did/app.bsky.feed.post/root'));
 
-      expect(entries.map((e) => e.item.text),
+      expect(thread.replies.map((e) => e.item.text),
           ['first reply', 'nested reply', 'second reply']);
-      expect(entries.map((e) => e.depth), [0, 1, 0]);
+      expect(thread.replies.map((e) => e.depth), [0, 1, 0]);
     });
   });
 
   group('graceful degradation', () {
     test('RSS has no thread to fetch', () async {
       final client = MockClient((_) async => http.Response('', 200));
-      final entries = await SourceClient.forSource(
+      final thread = await SourceClient.forSource(
         src(Network.rss, {'url': 'https://example.com/feed'}),
         client,
       ).fetchThread(itemWith(network: Network.rss, url: 'https://example.com/1'));
 
-      expect(entries, isEmpty);
+      expect(thread.isEmpty, isTrue);
     });
 
     test('a failed thread fetch returns nothing rather than throwing',
         () async {
       final client = MockClient((_) async => http.Response('nope', 500));
-      final entries = await SourceClient.forSource(
+      final thread = await SourceClient.forSource(
         src(Network.mastodon, {'instance': 'mastodon.social'}),
         client,
       ).fetchThread(itemWith(network: Network.mastodon, nativeId: '1'));
 
-      expect(entries, isEmpty);
+      expect(thread.isEmpty, isTrue);
     });
 
     test('an item with no native id cannot be threaded', () async {
       final client = MockClient((_) async => http.Response('{}', 200));
-      final entries = await SourceClient.forSource(
+      final thread = await SourceClient.forSource(
         src(Network.bluesky, {'handle': 'a.bsky.social'}),
         client,
       ).fetchThread(itemWith(network: Network.bluesky));
 
-      expect(entries, isEmpty);
+      expect(thread.isEmpty, isTrue);
     });
   });
 
