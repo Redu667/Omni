@@ -35,7 +35,7 @@ whether Omni is usable as a daily reader at all.
 | **Read / unread state** | ✓ | Opening a post marks it read; scrolling one off the top of the screen does too, behind a setting. Read posts dim, or hide entirely by choice, and there's mark-all-read. Posts marked by scrolling stay in place until the next refresh, so the list never shifts under a moving thumb. |
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
-| **Search** | ◐ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip. Not yet: querying each network's own search API for posts you haven't loaded. |
+| **Search** | ✓ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip; press enter to ask Mastodon, Bluesky and Reddit for posts you haven't loaded. RSS has no search API and X's would be another rotating query ID, so neither is offered. |
 | **Image viewer** | ◐ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture. Not yet: saving to the device. |
 | **Video** | ✓ | Plays in-app on all four networks that have it — Mastodon video and `gifv`, Bluesky's HLS embeds, Reddit `v.redd.it`, and X video and animated GIFs. Timeline shows the poster frame with a play badge and the running time; GIFs loop silently, everything else plays once with sound. |
 | **Alt text** | ✓ | Carried from Mastodon, Bluesky and X for images and video alike, shown under each image in the detail view and under a playing video, exposed to screen readers, and flagged with an ALT badge in the timeline. |
@@ -64,6 +64,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | **Polls** | ✓ | Options and vote shares shown. Read-only — Omni doesn't vote. |
 | **Custom emoji** | ✓ | Instance emoji render inline in post bodies, titles, display names and replies, sized to the line. Only shortcodes the post declares are substituted, so `10:30` stays a time. An emoji that won't load falls back to the code it stands for. |
 | **Interactions** | ✗ | No favourite, boost, reply, or follow. Omni is read-only by design, but favouriting is the one most readers expect. |
+| **Search** | ✓ | Status search when signed in, and a `#tag` query uses the public tag timeline instead — status search is authenticated on nearly every instance. |
 | **Notifications timeline** | ✗ | No mentions, follows, or replies view. |
 | **Lists & hashtag timelines** | ✓ | Hashtag timelines need no account and can be scoped to one instance; lists are offered by name after signing in, rather than by numeric id. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
@@ -91,6 +92,7 @@ Closest comparison: the official app, Graysky, deck.blue.
 | **Interactions** | ✗ | No like, repost, reply, or follow. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
 | **Video** | ✓ | HLS embeds play, including when nested under `recordWithMedia`. |
+| **Search** | ✓ | `searchPosts` on the public AppView, so it works on a source with no credentials. |
 | **Session reuse** | ✓ | One sign-in serves every Bluesky source and survives between refreshes; the token is renewed with the refresh token rather than the password, and a rejected token triggers one fresh sign-in and a retry instead of a visible failure. |
 
 ---
@@ -106,6 +108,7 @@ Closest comparison: Infinity, RedReader, Boost.
 | Comments with nesting | ✓ | |
 | **Time filter for `top`** | ✓ | Hour through all-time, offered only for `top` and `controversial` — Reddit ignores it elsewhere. |
 | **Comment sort** | ✓ | Best, top, new, old, controversial and Q&A, chosen from the thread itself. |
+| **Search** | ✓ | Scoped to the subreddit the source follows, since site-wide results would drown out what the reader actually added. |
 | **Collapse comment threads** | ✓ | Tap a comment's header to fold it and everything under it, with a count of what's hidden. The body isn't the handle — selecting text there would fold the comment out from under you. |
 | **Load more comments** | ✓ | "N more replies" loads in place, at the right indentation, both at the top level and under a specific comment. Reddit's 100-per-request cap is handled by leaving the remainder behind the next button. "Continue this thread" stubs, which carry nothing to request, aren't offered. |
 | **Galleries** | ✓ | Every image of a gallery is carried, with captions as alt text. |
@@ -130,7 +133,7 @@ Closest comparison: Squawker; historically Tweetbot and Talon.
 | **Home timeline** | ✓ | A Twitter source can follow your own timeline instead of named accounts, when signed in. |
 | **Quote tweets** | ✓ | Rendered inline, as on Bluesky. |
 | **Conversation threads** | ✓ | Replies load via TweetDetail, with the tweets above the one being read shown as its ancestors and reply chains indented. A stale query ID leaves the post readable and simply shows no conversation. |
-| **Search** | ✗ | |
+| **Search** | ✗ | SearchTimeline would need another rotating query ID, and every one of those is another thing to break. Local search covers X posts already fetched. |
 | **Lists** | ✗ | |
 | **Bookmarks** | ✗ | |
 | **Polls** | ✗ | |
@@ -165,7 +168,7 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 Ordered by value-per-effort rather than by how impressive they sound.
 
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
-2. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
-3. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
-4. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
-5. **Offline detection** — with no signal, every source fails separately instead of the refresh being skipped.
+2. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Needs a decision about which copy to keep: the subreddit has the discussion, the feed has the full text.
+3. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
+4. **Offline detection** — with no signal, every source fails separately instead of the refresh being skipped.
+5. **Saving an image to the device** — the image viewer can show one but not keep it.

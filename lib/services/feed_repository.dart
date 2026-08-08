@@ -106,6 +106,57 @@ class FeedRepository {
       _clientFor(item, sources, twitterConfig: twitterConfig)?.commentSorts ??
       const {};
 
+  /// Asks every source that can search for [query], in parallel.
+  ///
+  /// A source that fails is simply absent from the results: a search box is
+  /// the wrong place to explain that one of five networks is rate limited,
+  /// and the other four still have answers.
+  Future<List<FeedItem>> search(
+    String query,
+    List<FeedSource> sources, {
+    int limitPerSource = 25,
+    TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
+  }) async {
+    final searchable = sources.where((s) => s.enabled).toList();
+
+    final results = await Future.wait(searchable.map((source) async {
+      final client = SourceClient.forSource(
+        source,
+        _http,
+        twitterConfig: twitterConfig,
+        twitterSession: _twitterSession,
+        blueskySessions: _blueskySessions,
+        twitterAccount: twitterAccount,
+        redditAuth: _redditAuth,
+      );
+      if (!client.supportsSearch) return const <FeedItem>[];
+      try {
+        return await client.search(query, limit: limitPerSource);
+      } catch (_) {
+        return const <FeedItem>[];
+      }
+    }));
+
+    final seen = <String>{};
+    return <FeedItem>[
+      for (final list in results)
+        for (final item in list)
+          if (seen.add(item.id)) item,
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  /// Whether any configured source can be searched at all.
+  bool canSearch(List<FeedSource> sources, {TwitterGuestConfig? twitterConfig}) =>
+      sources.where((s) => s.enabled).any((source) => SourceClient.forSource(
+            source,
+            _http,
+            twitterConfig: twitterConfig,
+            twitterSession: _twitterSession,
+            blueskySessions: _blueskySessions,
+            redditAuth: _redditAuth,
+          ).supportsSearch);
+
   /// Recent posts by whoever wrote [item], asked of its own source.
   Future<List<FeedItem>> fetchAuthorPosts(
     FeedItem item,

@@ -68,6 +68,15 @@ abstract class SourceClient {
           FeedItem item, MoreReplies more, {String? sort}) async =>
       const [];
 
+  /// Posts matching [query], asked of the network rather than of what's
+  /// already loaded. Networks with no search API return nothing.
+  Future<List<FeedItem>> search(String query, {int limit = 40}) async =>
+      const [];
+
+  /// Whether [search] can do anything here, so the UI only offers to look
+  /// somewhere that can be looked.
+  bool get supportsSearch => false;
+
   /// Recent posts by whoever wrote [item]. Networks with no concept of an
   /// author feed (RSS) return nothing.
   Future<List<FeedItem>> fetchAuthorPosts(FeedItem item, {int limit = 40}) async =>

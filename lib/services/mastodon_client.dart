@@ -202,6 +202,61 @@ class MastodonClient extends SourceClient {
   }
 
   @override
+  bool get supportsSearch => true;
+
+  @override
+  Future<List<FeedItem>> search(String query, {int limit = 40}) async {
+    final instance =
+        source.params['instance']!.replaceAll(RegExp(r'^https?://'), '');
+    final token = source.params['accessToken'];
+
+    // A leading # means "the tag timeline", which is public and richer than
+    // status search — which most instances only serve to signed-in users.
+    final tag = query.trim().startsWith('#')
+        ? query.trim().substring(1).split(RegExp(r'\s')).first
+        : null;
+    if (tag != null && tag.isNotEmpty) {
+      final res = await httpClient.get(
+        Uri.https(instance, '/api/v1/timelines/tag/$tag', {'limit': '$limit'}),
+        headers: {
+          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+        },
+      );
+      if (res.statusCode != 200) return const [];
+      return [
+        for (final status
+            in (jsonDecode(utf8.decode(res.bodyBytes)) as List)
+                .cast<Map<String, dynamic>>())
+          if (!hiddenByFilter(status)) _toItem(status),
+      ];
+    }
+
+    // Status search is an authenticated endpoint on nearly every instance,
+    // and returning nothing is more honest than a 401 the reader can't act
+    // on from a search box.
+    if (token == null || token.isEmpty) return const [];
+
+    final res = await httpClient.get(
+      Uri.https(instance, '/api/v2/search', {
+        'q': query,
+        'type': 'statuses',
+        'limit': '$limit',
+        // Don't make the instance go fetch remote accounts mid-search.
+        'resolve': 'false',
+      }),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (res.statusCode != 200) return const [];
+
+    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    return [
+      for (final status
+          in (body['statuses'] as List? ?? const []).cast<Map<String, dynamic>>())
+        if (!hiddenByFilter(status)) _toItem(status),
+    ];
+  }
+
+  @override
   bool get supportsAuthorFeed => true;
 
   @override

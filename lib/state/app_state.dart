@@ -436,6 +436,14 @@ class AppState extends ChangeNotifier {
           twitterAccount: _twitterAccount,
           sort: sort);
 
+  /// Asks the networks themselves, rather than the posts already loaded.
+  Future<List<FeedItem>> searchNetworks(String query) =>
+      _repository.search(query, _sources,
+          twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
+
+  bool get canSearchNetworks =>
+      _repository.canSearch(_sources, twitterConfig: _twitterConfig);
+
   Map<String, String> commentSorts(FeedItem item) =>
       _repository.commentSorts(item, _sources, twitterConfig: _twitterConfig);
 

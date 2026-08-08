@@ -230,6 +230,50 @@ class RedditClient extends SourceClient {
   }
 
   @override
+  bool get supportsSearch => true;
+
+  @override
+  Future<List<FeedItem>> search(String query, {int limit = 40}) async {
+    final subreddit =
+        source.params['subreddit']!.replaceAll(RegExp(r'^/?r/'), '');
+
+    // Scoped to this source's subreddit rather than all of Reddit: the
+    // source is what the reader added, and site-wide results would drown
+    // out the ones they were looking for.
+    final params = {
+      'q': query,
+      'restrict_sr': '1',
+      'sort': 'relevance',
+      'limit': '$limit',
+      'raw_json': '1',
+    };
+
+    final authHeaders = await _authHeaders();
+    if (authHeaders != null) {
+      final res = await httpClient.get(
+          Uri.https(_oauthHost, '/r/$subreddit/search', params),
+          headers: authHeaders);
+      if (res.statusCode == 200) {
+        final parsed = _tryParse(res);
+        if (parsed != null) return parsed.items;
+      }
+      if (res.statusCode == 401) auth?.invalidate();
+    }
+
+    for (final host in _hosts) {
+      final res = await httpClient.get(
+          Uri.https(host, '/r/$subreddit/search.json', params),
+          headers: _headers);
+      if (res.statusCode != 200) continue;
+      final parsed = _tryParse(res);
+      if (parsed != null) return parsed.items;
+    }
+    // Search has no Atom fallback, and an empty result reads better in a
+    // search box than an error about a subreddit the reader can already see.
+    return const [];
+  }
+
+  @override
   bool get supportsAuthorFeed => true;
 
   @override

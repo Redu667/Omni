@@ -208,6 +208,27 @@ class BlueskyClient extends SourceClient {
   }
 
   @override
+  bool get supportsSearch => true;
+
+  @override
+  Future<List<FeedItem>> search(String query, {int limit = 40}) async {
+    // searchPosts answers unauthenticated, so this works on a source that
+    // only follows a public feed.
+    final res = await httpClient.get(Uri.https(
+        _publicHost, '/xrpc/app.bsky.feed.searchPosts',
+        {'q': query, 'limit': '$limit'}));
+    if (res.statusCode != 200) return const [];
+
+    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    // Search returns bare posts rather than feed entries.
+    return [
+      for (final post in (body['posts'] as List? ?? const [])
+          .cast<Map<String, dynamic>>())
+        _toItem({'post': post}),
+    ];
+  }
+
+  @override
   bool get supportsAuthorFeed => true;
 
   @override
