@@ -13,6 +13,23 @@ import 'twitter_guest_config.dart';
 import 'twitter_guest_session.dart';
 import 'twitter_session_store.dart';
 
+/// One page of posts, plus whatever the network needs to be asked for the
+/// next one. Every network spells its cursor differently — Mastodon wants
+/// the oldest id, Reddit a fullname, Bluesky and X an opaque token — so the
+/// value is only ever handed back to the client that produced it.
+class SourcePage {
+  const SourcePage({required this.items, this.nextCursor});
+
+  const SourcePage.last(this.items) : nextCursor = null;
+
+  final List<FeedItem> items;
+
+  /// Null when there is nothing older to fetch.
+  final String? nextCursor;
+
+  bool get hasMore => nextCursor != null;
+}
+
 /// Fetches the latest posts for one configured [FeedSource].
 abstract class SourceClient {
   const SourceClient(this.source, this.httpClient);
@@ -20,13 +37,19 @@ abstract class SourceClient {
   final FeedSource source;
   final http.Client httpClient;
 
-  Future<List<FeedItem>> fetchLatest({int limit = 40});
+  /// Fetches a page. [cursor] is null for the newest posts, otherwise a value
+  /// this same client returned earlier.
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor});
 
-  /// Replies to [item], flattened with nesting depth. Networks that have no
-  /// notion of a thread (RSS) return nothing, which the detail view treats
-  /// as "no discussion", not as a failure.
-  Future<List<ThreadEntry>> fetchThread(FeedItem item, {int limit = 100}) async =>
-      const [];
+  /// The newest page only — most callers want this.
+  Future<List<FeedItem>> fetchLatest({int limit = 40}) async =>
+      (await fetchPage(limit: limit)).items;
+
+  /// The conversation around [item] — what it replied to, and the replies
+  /// beneath it. Networks with no notion of a thread (RSS) return nothing,
+  /// which the detail view treats as "no discussion", not as a failure.
+  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async =>
+      PostThread.empty;
 
   /// Recent posts by whoever wrote [item]. Networks with no concept of an
   /// author feed (RSS) return nothing.

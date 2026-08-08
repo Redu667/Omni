@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models/feed_item.dart';
+import '../models/collection.dart';
 import '../models/feed_filters.dart';
 import '../models/feed_source.dart';
 import '../models/network.dart';
+import '../services/feed_cache.dart';
 import '../services/feed_repository.dart';
 import '../services/saved_store.dart';
 import '../services/source_store.dart';
@@ -21,13 +23,15 @@ class AppState extends ChangeNotifier {
     SettingsStore? settingsStore,
     TwitterSessionStore? twitterSessionStore,
     SavedStore? savedStore,
+    FeedCache? cache,
   })  : _repository = repository ?? FeedRepository(),
         _store = store ?? SourceStore(),
         _validator = validator ?? SourceValidator(),
         _twitterConfigStore = twitterConfigStore ?? TwitterGuestConfigStore(),
         _settingsStore = settingsStore ?? SettingsStore(),
         _twitterSessionStore = twitterSessionStore ?? TwitterSessionStore(),
-        _savedStore = savedStore ?? SavedStore();
+        _savedStore = savedStore ?? SavedStore(),
+        _cache = cache ?? FeedCache();
 
   final FeedRepository _repository;
   final SourceStore _store;
@@ -36,6 +40,41 @@ class AppState extends ChangeNotifier {
   final SettingsStore _settingsStore;
   final TwitterSessionStore _twitterSessionStore;
   final SavedStore _savedStore;
+  final FeedCache _cache;
+
+  Set<String> _readIds = {};
+  bool _hideRead = false;
+
+  bool isRead(FeedItem item) => _readIds.contains(item.id);
+
+  /// Whether read posts are hidden outright rather than just dimmed.
+  bool get hideRead => _hideRead;
+
+  int get unreadCount =>
+      _visibleItems.where((i) => !_readIds.contains(i.id)).length;
+
+  Future<void> setHideRead(bool value) async {
+    _hideRead = value;
+    await _settingsStore.saveHideRead(value);
+    notifyListeners();
+  }
+
+  Future<void> markRead(FeedItem item) async {
+    if (!_readIds.add(item.id)) return;
+    await _settingsStore.saveReadIds(_readIds);
+    notifyListeners();
+  }
+
+  Future<void> markAllRead() async {
+    _readIds = {..._readIds, ..._items.map((i) => i.id)};
+    await _settingsStore.saveReadIds(_readIds);
+    notifyListeners();
+  }
+
+  /// True when the timeline on screen came from disk rather than the
+  /// network, so the UI can say so rather than implying it is current.
+  bool _fromCache = false;
+  bool get showingCached => _fromCache;
 
   List<FeedItem> _saved = [];
 
@@ -142,6 +181,19 @@ class AppState extends ChangeNotifier {
           mutedAccounts:
               _filters.mutedAccounts.where((a) => a != account).toList()));
 
+  bool _useDynamicColour = true;
+
+  /// Whether to take colours from the system wallpaper (Material You) when
+  /// the platform offers them. On by default; falls back to Omni's own
+  /// palette where unsupported.
+  bool get useDynamicColour => _useDynamicColour;
+
+  Future<void> setUseDynamicColour(bool value) async {
+    _useDynamicColour = value;
+    await _settingsStore.saveDynamicColour(value);
+    notifyListeners();
+  }
+
   ThemeMode _themeMode = ThemeMode.system;
 
   ThemeMode get themeMode => _themeMode;
@@ -170,29 +222,126 @@ class AppState extends ChangeNotifier {
   List<FeedItem> _items = [];
   List<String> _errors = [];
   bool _loading = false;
+  bool _loadingMore = false;
   bool _initialized = false;
+
+  /// Where each source got to. Empty once everything has run out.
+  Map<String, String> _cursors = {};
 
   /// null = show everything; otherwise only this network.
   Network? _filter;
 
+  /// Set when viewing a collection, which supersedes the network filter.
+  String? _collectionId;
+
+  List<Collection> _collections = [];
+
+  List<Collection> get collections => List.unmodifiable(_collections);
+
+  /// The collection currently being viewed, if any.
+  Collection? get activeCollection => _collectionId == null
+      ? null
+      : _collections.where((c) => c.id == _collectionId).firstOrNull;
+
+  /// What the app bar should call the current view.
+  String get viewTitle =>
+      activeCollection?.name ?? _filter?.label ?? 'Omni';
+
+  void showCollection(String? id) {
+    _collectionId = id;
+    if (id != null) _filter = null;
+    notifyListeners();
+  }
+
+  Future<void> addCollection(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    _collections = [
+      ..._collections,
+      Collection(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: trimmed,
+      ),
+    ];
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  Future<void> renameCollection(String id, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    _collections = [
+      for (final c in _collections) c.id == id ? c.copyWith(name: trimmed) : c,
+    ];
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  Future<void> removeCollection(String id) async {
+    _collections = _collections.where((c) => c.id != id).toList();
+    if (_collectionId == id) _collectionId = null;
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  Future<void> setCollectionMembership(
+      String collectionId, String sourceId, bool member) async {
+    _collections = [
+      for (final c in _collections)
+        c.id == collectionId ? c.withSource(sourceId, member) : c,
+    ];
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  /// Collections a given source belongs to, for the sources list.
+  List<Collection> collectionsFor(String sourceId) =>
+      [for (final c in _collections) if (c.contains(sourceId)) c];
+
   List<FeedSource> get sources => List.unmodifiable(_sources);
   List<String> get errors => List.unmodifiable(_errors);
   bool get loading => _loading;
+  bool get loadingMore => _loadingMore;
   bool get initialized => _initialized;
+
+  /// Whether any source still has older posts to offer.
+  bool get hasMore => _cursors.isNotEmpty;
   Network? get filter => _filter;
 
-  List<FeedItem> get items => List.unmodifiable(_items.where((i) =>
-      (_filter == null || i.network == _filter) && !_filters.hides(i)));
+  /// Everything that passes the network chip and mute filters, before
+  /// read-hiding — so the unread count doesn't change as posts are hidden.
+  Iterable<FeedItem> get _visibleItems {
+    final collection = activeCollection;
+    return _items.where((i) =>
+        (collection == null || collection.contains(i.sourceId)) &&
+        (_filter == null || i.network == _filter) &&
+        !_filters.hides(i));
+  }
+
+  List<FeedItem> get items => List.unmodifiable(
+      _hideRead ? _visibleItems.where((i) => !_readIds.contains(i.id))
+                : _visibleItems);
 
   /// Networks that currently have at least one configured source.
   Set<Network> get activeNetworks => _sources.map((s) => s.network).toSet();
 
   Future<void> init() async {
     _sources = await _store.load();
+    _readIds = await _settingsStore.loadReadIds();
+    _hideRead = await _settingsStore.loadHideRead();
+    _collections = await _settingsStore.loadCollections();
+
+    // Show the cached timeline immediately; the network refresh follows.
+    final cached = await _cache.load();
+    if (cached.isNotEmpty) {
+      _items = cached;
+      _fromCache = true;
+    }
     _twitterConfig = await _twitterConfigStore.load();
     _openInApp = await _settingsStore.loadOpenInApp();
     _filters = await _settingsStore.loadFilters();
     _themeMode = await _settingsStore.loadThemeMode();
+    _useDynamicColour = await _settingsStore.loadDynamicColour();
     _twitterAccount = await _twitterSessionStore.load();
     _saved = await _savedStore.load();
     _initialized = true;
@@ -200,7 +349,7 @@ class AppState extends ChangeNotifier {
     if (_sources.isNotEmpty) await refresh();
   }
 
-  Future<List<ThreadEntry>> fetchThread(FeedItem item) =>
+  Future<PostThread> fetchThread(FeedItem item) =>
       _repository.fetchThread(item, _sources,
           twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
 
@@ -221,10 +370,48 @@ class AppState extends ChangeNotifier {
 
     final result = await _repository.fetchAll(_sources,
         twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
+    // A refresh that failed everywhere shouldn't wipe a usable cache.
+    if (result.items.isEmpty && result.errors.isNotEmpty && _items.isNotEmpty) {
+      _errors = result.errors;
+      _loading = false;
+      notifyListeners();
+      return;
+    }
+
     _items = result.items;
     _errors = result.errors;
+    _cursors = result.cursors;
+    _fromCache = false;
     _loading = false;
     notifyListeners();
+    await _cache.save(_items);
+  }
+
+  /// Appends the next page from every source that still has one.
+  Future<void> loadMore() async {
+    if (_loading || _loadingMore || _cursors.isEmpty) return;
+    _loadingMore = true;
+    notifyListeners();
+
+    final result = await _repository.fetchAll(
+      _sources,
+      twitterConfig: _twitterConfig,
+      twitterAccount: _twitterAccount,
+      cursors: _cursors,
+    );
+
+    // Merge rather than replace, and re-sort so a slow source's older posts
+    // still land in the right place.
+    final seen = _items.map((i) => i.id).toSet();
+    _items = [..._items, ...result.items.where((i) => seen.add(i.id))]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    _cursors = result.cursors;
+    // Paging errors are transient and the feed still shows; don't replace
+    // the banner contents wholesale over them.
+    if (result.errors.isNotEmpty) _errors = result.errors;
+    _loadingMore = false;
+    notifyListeners();
+    await _cache.save(_items);
   }
 
   /// Test-fetches the source first; throws [SourceFetchException] with a
@@ -247,6 +434,11 @@ class AppState extends ChangeNotifier {
   Future<void> removeSource(String id) async {
     _sources = _sources.where((s) => s.id != id).toList();
     _items = _items.where((i) => i.sourceId != id).toList();
+    // A removed source shouldn't linger as a phantom member.
+    _collections = [
+      for (final c in _collections) c.withSource(id, false),
+    ];
+    await _settingsStore.saveCollections(_collections);
     if (_filter != null && !activeNetworks.contains(_filter)) _filter = null;
     await _store.save(_sources);
     notifyListeners();
@@ -282,6 +474,7 @@ class AppState extends ChangeNotifier {
 
   void setFilter(Network? network) {
     _filter = network;
+    if (network != null) _collectionId = null;
     notifyListeners();
   }
 

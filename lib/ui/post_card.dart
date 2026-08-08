@@ -36,8 +36,12 @@ class _PostCardState extends State<PostCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final read = context.watch<AppState>().isRead(item);
 
-    return Card(
+    return Opacity(
+      // Read posts stay in place but recede, so the eye skips them.
+      opacity: read ? 0.55 : 1,
+      child: Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -112,19 +116,41 @@ class _PostCardState extends State<PostCard> {
               if (item.imageUrls.isNotEmpty && (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: CachedNetworkImage(
-                      imageUrl: item.imageUrls.first,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: 200,
-                      placeholder: (_, _) => Container(
-                        height: 200,
-                        color: theme.colorScheme.surfaceContainerHighest,
+                  child: Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Semantics(
+                          label: item.media.first.alt,
+                          image: true,
+                          child: CachedNetworkImage(
+                            imageUrl: item.imageUrls.first,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: 200,
+                            placeholder: (_, _) => Container(
+                              height: 200,
+                              color: theme.colorScheme.surfaceContainerHighest,
+                            ),
+                            errorWidget: (_, _, _) => const SizedBox.shrink(),
+                          ),
+                        ),
                       ),
-                      errorWidget: (_, _, _) => const SizedBox.shrink(),
-                    ),
+                      if (item.imageUrls.length > 1)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: _Chip(
+                              label: '+${item.imageUrls.length - 1}',
+                              theme: theme),
+                        ),
+                      if (item.media.first.hasAlt)
+                        Positioned(
+                          left: 8,
+                          bottom: 8,
+                          child: _Chip(label: 'ALT', theme: theme),
+                        ),
+                    ],
                   ),
                 ),
               if (item.likes != null ||
@@ -149,6 +175,7 @@ class _PostCardState extends State<PostCard> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -313,6 +340,31 @@ class _RevealPrompt extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// Small overlay badge for image counts and the ALT marker.
+class _Chip extends StatelessWidget {
+  const _Chip({required this.label, required this.theme});
+
+  final String label;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall
+            ?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
       ),
     );
   }

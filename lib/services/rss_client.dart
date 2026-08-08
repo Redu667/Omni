@@ -9,8 +9,15 @@ import 'source_client.dart';
 class RssClient extends SourceClient {
   const RssClient(super.source, super.httpClient);
 
+  /// Feeds publish a fixed window of recent entries with no way to ask for
+  /// older ones, so every page is the last one.
   @override
-  Future<List<FeedItem>> fetchLatest({int limit = 40}) async {
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
+    if (cursor != null) return const SourcePage.last([]);
+    return SourcePage.last(await _fetchAll(limit));
+  }
+
+  Future<List<FeedItem>> _fetchAll(int limit) async {
     final url = source.params['url']!;
     final uri = Uri.parse(url.startsWith('http') ? url : 'https://$url');
 
@@ -46,17 +53,19 @@ class RssClient extends SourceClient {
     return channel.findElements('item').take(limit).map((item) {
       String text(String tag) => item.getElement(tag)?.innerText.trim() ?? '';
 
-      final images = <String>[];
+      final images = <MediaItem>[];
       final enclosure = item.getElement('enclosure');
       if ((enclosure?.getAttribute('type') ?? '').startsWith('image')) {
         final u = enclosure!.getAttribute('url');
-        if (u != null) images.add(u);
+        if (u != null) images.add(MediaItem(url: u));
       }
       for (final mc in item.findElements('media:content')) {
         final u = mc.getAttribute('url');
         final type = mc.getAttribute('type') ?? mc.getAttribute('medium') ?? '';
         if (u != null && (type.startsWith('image') || type == 'image')) {
-          images.add(u);
+          images.add(MediaItem(
+              url: u,
+              alt: mc.getElement('media:description')?.innerText.trim()));
         }
       }
 
@@ -79,7 +88,7 @@ class RssClient extends SourceClient {
             : description,
         fullText: full.length > description.length ? full : null,
         url: link.isNotEmpty ? link : null,
-        imageUrls: images,
+        media: images,
         context: feedTitle,
         createdAt: parseRfc822OrIso(text('pubDate')) ?? DateTime.now().toUtc(),
       );

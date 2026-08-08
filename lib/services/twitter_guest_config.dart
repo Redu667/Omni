@@ -19,6 +19,7 @@ class TwitterGuestConfig {
     required this.userByScreenNameQueryId,
     required this.userTweetsQueryId,
     required this.featuresJson,
+    this.homeTimelineQueryId = defaultHomeTimelineQueryId,
   });
 
   /// The public bearer token X's own logged-out web client ships. It is the
@@ -31,6 +32,7 @@ class TwitterGuestConfig {
   /// "unknown query ID" error as a prompt to refresh them, not as a bug.
   static const defaultUserByScreenNameQueryId = 'G3KGOASz96M-Qu0nwmGXNg';
   static const defaultUserTweetsQueryId = 'V7H0Ap3_Hh2FyS75OCDO3Q';
+  static const defaultHomeTimelineQueryId = 'HJFjzBgCs16TqxewQOeLNg';
 
   /// Feature flags the endpoints require. X rejects a request that omits a
   /// flag it expects, but tolerates extras, so this is a superset.
@@ -72,12 +74,17 @@ class TwitterGuestConfig {
     bearerToken: defaultBearerToken,
     userByScreenNameQueryId: defaultUserByScreenNameQueryId,
     userTweetsQueryId: defaultUserTweetsQueryId,
+    homeTimelineQueryId: defaultHomeTimelineQueryId,
     featuresJson: defaultFeaturesJson,
   );
 
   final String bearerToken;
   final String userByScreenNameQueryId;
   final String userTweetsQueryId;
+
+  /// Only used by signed-in sources set to follow your home timeline.
+  final String homeTimelineQueryId;
+
   final String featuresJson;
 
   /// The feature flags as a map, or an empty map when the stored JSON is
@@ -102,6 +109,7 @@ class TwitterGuestConfig {
     String? bearerToken,
     String? userByScreenNameQueryId,
     String? userTweetsQueryId,
+    String? homeTimelineQueryId,
     String? featuresJson,
   }) =>
       TwitterGuestConfig(
@@ -109,6 +117,7 @@ class TwitterGuestConfig {
         userByScreenNameQueryId:
             userByScreenNameQueryId ?? this.userByScreenNameQueryId,
         userTweetsQueryId: userTweetsQueryId ?? this.userTweetsQueryId,
+        homeTimelineQueryId: homeTimelineQueryId ?? this.homeTimelineQueryId,
         featuresJson: featuresJson ?? this.featuresJson,
       );
 
@@ -116,6 +125,7 @@ class TwitterGuestConfig {
         'bearerToken': bearerToken,
         'userByScreenNameQueryId': userByScreenNameQueryId,
         'userTweetsQueryId': userTweetsQueryId,
+        'homeTimelineQueryId': homeTimelineQueryId,
         'featuresJson': featuresJson,
       };
 
@@ -126,6 +136,8 @@ class TwitterGuestConfig {
             defaultUserByScreenNameQueryId,
         userTweetsQueryId:
             json['userTweetsQueryId'] as String? ?? defaultUserTweetsQueryId,
+        homeTimelineQueryId: json['homeTimelineQueryId'] as String? ??
+            defaultHomeTimelineQueryId,
         featuresJson: json['featuresJson'] as String? ?? defaultFeaturesJson,
       );
 }

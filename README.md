@@ -10,7 +10,8 @@ Moshidon, but spanning multiple networks.
 ## Features
 
 - **Unified timeline** — posts from every configured source, merged and sorted
-  by time, with pull-to-refresh.
+  by time, with pull-to-refresh and endless scrolling: each network is paged
+  with its own cursor, and sources that run out drop out quietly.
 - **Easy setup** — in-app Mastodon sign-in (OAuth, no token pasting), a
   quick-start screen with curated no-account sources, and every source is
   test-fetched when you add it so mistakes fail immediately with a clear
@@ -27,7 +28,17 @@ Moshidon, but spanning multiple networks.
   on Mastodon, Bluesky, Reddit or X.
 - **Save posts** — long-press to keep one. Saved posts are stored in full, so
   they stay readable after the source is removed or the original is deleted.
-- **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
+- **Works offline** — the timeline is cached to disk and shown the moment you
+  open the app; a failed refresh keeps what you had instead of blanking.
+- **Read state** — opening a post marks it read; read posts dim, or hide
+  entirely if you prefer, with mark-all-read a tap away.
+- **Alt text** — image descriptions are carried through from Mastodon,
+  Bluesky and X, shown under the image and exposed to screen readers.
+- **Collections** — group sources across networks under one name. Put a
+  subreddit, an account and a feed about the same subject together and read
+  them as one timeline.
+- **Sidebar navigation** — collections and networks live in a drawer rather
+  than a chip bar that would overflow once you have a few of each.
 - **Content warnings honoured** — Mastodon spoilers and Reddit's over-18 flag
   hide a post's body and media behind a reveal rather than showing content the
   author marked as hidden.
@@ -40,7 +51,9 @@ Moshidon, but spanning multiple networks.
   several accounts; toggle each on/off or remove it.
 - **Graceful partial failure** — if one source is down you still get the rest,
   with an inline warning.
-- **Material 3** with dynamic light/dark themes.
+- **Material 3 with Material You** — takes its palette from your wallpaper on
+  Android 12+, with a light/dark/system override and a switch back to Omni's
+  own colours.
 - **Encrypted credential storage** — tokens and app passwords are kept in
   Android's encrypted storage via `flutter_secure_storage`.
 

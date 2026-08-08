@@ -38,8 +38,14 @@ class TwitterGuestClient extends SourceClient {
 
   static const _host = 'api.twitter.com';
 
+  /// True when the source follows the signed-in account's own timeline
+  /// rather than a list of usernames.
+  bool get _isHomeFeed => source.params['feed'] == 'home';
+
   @override
-  Future<List<FeedItem>> fetchLatest({int limit = 40}) async {
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
+    if (_isHomeFeed) return _fetchHomeTimeline(limit: limit, cursor: cursor);
+
     final usernames = (source.params['usernames'] ?? '')
         .split(RegExp(r'[,\s]+'))
         .where((u) => u.isNotEmpty)
@@ -53,10 +59,22 @@ class TwitterGuestClient extends SourceClient {
     final items = <FeedItem>[];
     final failures = <String>[];
 
+    // One cursor per account, packed together, since a source can follow
+    // several and each pages independently.
+    final cursors = _decodeCursors(cursor);
+    final nextCursors = <String, String>{};
+
     for (final username in usernames) {
+      // An account that has run out shouldn't be asked again.
+      if (cursor != null && !cursors.containsKey(username)) continue;
       try {
         final userId = await _resolveUserId(username);
-        items.addAll(await _fetchUserTweets(userId, perUser));
+        final page =
+            await _fetchUserTweets(userId, perUser, cursor: cursors[username]);
+        items.addAll(page.items);
+        if (page.nextCursor != null && page.items.isNotEmpty) {
+          nextCursors[username] = page.nextCursor!;
+        }
       } on TwitterGuestException catch (e) {
         failures.add('@$username: ${e.message}');
       }
@@ -72,7 +90,8 @@ class TwitterGuestClient extends SourceClient {
     // Anonymous access degrades quietly: X keeps answering 200 but serves a
     // stale slice of the timeline. Silently showing year-old posts as if
     // they were current is worse than saying nothing, so call it out.
-    if (items.isNotEmpty) {
+    // Only judge the newest page; later pages are old by definition.
+    if (items.isNotEmpty && cursor == null) {
       final age = DateTime.now().toUtc().difference(items.first.createdAt);
       if (age > staleThreshold) {
         throw SourceFetchException(
@@ -89,8 +108,84 @@ class TwitterGuestClient extends SourceClient {
         );
       }
     }
-    return items;
+    return SourcePage(
+      items: items,
+      nextCursor: nextCursors.isEmpty ? null : _encodeCursors(nextCursors),
+    );
   }
+
+  /// The signed-in account's own timeline. Needs a session — X has no
+  /// notion of a guest's home feed.
+  Future<SourcePage> _fetchHomeTimeline(
+      {int limit = 40, String? cursor}) async {
+    if (!_authenticated) {
+      throw SourceFetchException(
+        source.displayName,
+        'Your home timeline needs a signed-in account. Sign in from '
+        'Settings → Twitter (X) access, or switch this source to follow '
+        'specific usernames instead.',
+      );
+    }
+
+    final Map<String, dynamic> body;
+    try {
+      body = await _graphql(
+        queryId: config.homeTimelineQueryId,
+        operation: 'HomeTimeline',
+        variables: {
+          'count': limit,
+          if (cursor != null) 'cursor': cursor,
+          'includePromotedContent': false,
+          'latestControlAvailable': true,
+          'withCommunity': true,
+        },
+      );
+    } on TwitterGuestException catch (e) {
+      throw SourceFetchException(source.displayName, e.message);
+    }
+
+    // The home timeline nests one level deeper than a user's.
+    final instructions = (_dig(body,
+                ['data', 'home', 'home_timeline_urt', 'instructions'])
+            as List?) ??
+        const [];
+
+    final items = <FeedItem>[];
+    String? bottomCursor;
+    for (final instruction in instructions.cast<Map<String, dynamic>>()) {
+      if (instruction['type'] != 'TimelineAddEntries') continue;
+      for (final entry in (instruction['entries'] as List? ?? const [])
+          .cast<Map<String, dynamic>>()) {
+        final entryId = entry['entryId'] as String? ?? '';
+        if (entryId.startsWith('cursor-bottom')) {
+          bottomCursor =
+              _dig(entry, ['content', 'value']) as String? ?? bottomCursor;
+          continue;
+        }
+        items.addAll(_itemsFromEntry(entry));
+      }
+    }
+
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return SourcePage(
+      items: items,
+      nextCursor: items.isEmpty ? null : bottomCursor,
+    );
+  }
+
+  /// Several accounts page independently, so their cursors travel together
+  /// as one opaque string.
+  static Map<String, String> _decodeCursors(String? packed) {
+    if (packed == null || packed.isEmpty) return {};
+    try {
+      return (jsonDecode(packed) as Map).cast<String, String>();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static String _encodeCursors(Map<String, String> cursors) =>
+      jsonEncode(cursors);
 
   /// How out of date the newest post must be before the timeline is treated
   /// as stale rather than merely quiet. Generous, so genuinely inactive
@@ -107,8 +202,8 @@ class TwitterGuestClient extends SourceClient {
 
     try {
       final userId = await _resolveUserId(handle);
-      final items = await _fetchUserTweets(userId, limit);
-      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final items = [...(await _fetchUserTweets(userId, limit)).items]
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return items;
     } on TwitterGuestException catch (e) {
       throw SourceFetchException(source.displayName, e.message);
@@ -136,13 +231,15 @@ class TwitterGuestClient extends SourceClient {
     return restId;
   }
 
-  Future<List<FeedItem>> _fetchUserTweets(String userId, int count) async {
+  Future<SourcePage> _fetchUserTweets(String userId, int count,
+      {String? cursor}) async {
     final body = await _graphql(
       queryId: config.userTweetsQueryId,
       operation: 'UserTweets',
       variables: {
         'userId': userId,
         'count': count,
+        if (cursor != null) 'cursor': cursor,
         'includePromotedContent': false,
         'withQuickPromoteEligibilityTweetFields': false,
         'withVoice': true,
@@ -156,14 +253,22 @@ class TwitterGuestClient extends SourceClient {
         (_dig(timeline, ['timeline', 'instructions']) as List?) ?? const [];
 
     final items = <FeedItem>[];
+    String? bottomCursor;
     for (final instruction in instructions.cast<Map<String, dynamic>>()) {
       if (instruction['type'] != 'TimelineAddEntries') continue;
       for (final entry
           in (instruction['entries'] as List? ?? const []).cast<Map<String, dynamic>>()) {
+        // X hands back the next page as a cursor entry in the timeline.
+        final entryId = entry['entryId'] as String? ?? '';
+        if (entryId.startsWith('cursor-bottom')) {
+          bottomCursor =
+              _dig(entry, ['content', 'value']) as String? ?? bottomCursor;
+          continue;
+        }
         items.addAll(_itemsFromEntry(entry));
       }
     }
-    return items;
+    return SourcePage(items: items, nextCursor: bottomCursor);
   }
 
   Iterable<FeedItem> _itemsFromEntry(Map<String, dynamic> entry) sync* {
@@ -247,9 +352,13 @@ class TwitterGuestClient extends SourceClient {
       url: screenName.isNotEmpty && restId != null
           ? 'https://x.com/$screenName/status/$restId'
           : null,
-      imageUrls: [
+      media: [
         for (final m in media)
-          if (m['media_url_https'] != null) m['media_url_https'] as String,
+          if (m['media_url_https'] != null)
+            MediaItem(
+              url: m['media_url_https'] as String,
+              alt: m['ext_alt_text'] as String?,
+            ),
       ],
       repostedBy: repostedBy,
       likes: legacy['favorite_count'] as int?,

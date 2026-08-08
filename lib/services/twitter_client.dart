@@ -13,7 +13,7 @@ class TwitterClient extends SourceClient {
   const TwitterClient(super.source, super.httpClient);
 
   @override
-  Future<List<FeedItem>> fetchLatest({int limit = 40}) async {
+  Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
     final bearer = source.params['bearerToken'];
     if (bearer == null || bearer.isEmpty) {
       throw SourceFetchException(source.displayName, 'no bearer token set');
@@ -31,6 +31,7 @@ class TwitterClient extends SourceClient {
     final uri = Uri.https('api.x.com', '/2/tweets/search/recent', {
       'query': '($query) -is:retweet',
       'max_results': '${limit.clamp(10, 100)}',
+      if (cursor != null) 'next_token': cursor,
       'tweet.fields': 'created_at,public_metrics,attachments',
       'expansions': 'author_id,attachments.media_keys',
       'user.fields': 'name,username,profile_image_url',
@@ -61,9 +62,13 @@ class TwitterClient extends SourceClient {
         (m as Map<String, dynamic>)['media_key'] as String: m,
     };
 
-    return tweets
-        .map((t) => _toItem(t as Map<String, dynamic>, users, media))
-        .toList(growable: false);
+    final meta = body['meta'] as Map<String, dynamic>? ?? const {};
+    return SourcePage(
+      items: tweets
+          .map((t) => _toItem(t as Map<String, dynamic>, users, media))
+          .toList(growable: false),
+      nextCursor: tweets.isEmpty ? null : meta['next_token'] as String?,
+    );
   }
 
   FeedItem _toItem(
@@ -76,14 +81,16 @@ class TwitterClient extends SourceClient {
     final metrics =
         tweet['public_metrics'] as Map<String, dynamic>? ?? const {};
 
-    final images = <String>[];
+    final images = <MediaItem>[];
     final mediaKeys = ((tweet['attachments'] as Map<String, dynamic>?)?['media_keys']
             as List? ??
         const []);
     for (final key in mediaKeys) {
       final m = media[key];
       final url = (m?['url'] ?? m?['preview_image_url']) as String?;
-      if (url != null) images.add(url);
+      if (url != null) {
+        images.add(MediaItem(url: url, alt: m?['alt_text'] as String?));
+      }
     }
 
     return FeedItem(
@@ -97,7 +104,7 @@ class TwitterClient extends SourceClient {
       url: username.isNotEmpty
           ? 'https://x.com/$username/status/${tweet['id']}'
           : null,
-      imageUrls: images,
+      media: images,
       likes: metrics['like_count'] as int?,
       reposts: metrics['retweet_count'] as int?,
       replies: metrics['reply_count'] as int?,

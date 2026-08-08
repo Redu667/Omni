@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
 import 'add_source_screen.dart';
+import 'collections_screen.dart';
 import 'starter_picks_screen.dart';
 
 class SourcesScreen extends StatelessWidget {
@@ -51,6 +52,16 @@ class SourcesScreen extends StatelessWidget {
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        IconButton(
+                          icon: Icon(
+                            state.collectionsFor(source.id).isEmpty
+                                ? Icons.folder_outlined
+                                : Icons.folder,
+                          ),
+                          tooltip: 'Collections',
+                          onPressed: () =>
+                              showCollectionPicker(context, source.id),
+                        ),
                         if (source.network == Network.reddit)
                           PopupMenuButton<String>(
                             icon: const Icon(Icons.sort),
