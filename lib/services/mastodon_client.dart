@@ -56,7 +56,8 @@ class MastodonClient extends SourceClient {
   }
 
   @override
-  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
+  Future<PostThread> fetchThread(FeedItem item,
+      {int limit = 100, String? sort}) async {
     final statusId = item.nativeId;
     if (statusId == null) return PostThread.empty;
 

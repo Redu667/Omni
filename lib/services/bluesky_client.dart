@@ -6,9 +6,14 @@ import 'source_client.dart';
 
 /// Bluesky (AT Protocol).
 ///
-/// Two modes:
+/// Three modes:
+///  - `feed`: a custom feed generator or a list — the thing most Bluesky
+///    users actually read, since the algorithm is the product there.
 ///  - `handle` only: a user's public author feed, no login required.
 ///  - `identifier` + `appPassword`: signs in and fetches the home timeline.
+///
+/// Credentials, when present, apply to all three: some feed generators only
+/// answer authenticated requests.
 class BlueskyClient extends SourceClient {
   const BlueskyClient(super.source, super.httpClient);
 
@@ -36,28 +41,52 @@ class BlueskyClient extends SourceClient {
   Future<SourcePage> fetchPage({int limit = 40, String? cursor}) async {
     final identifier = source.params['identifier'];
     final appPassword = source.params['appPassword'];
+    final feedRef = source.params['feed'];
 
     final paging = {
       'limit': '$limit',
       if (cursor != null) 'cursor': cursor,
     };
 
-    final ({List feed, String? cursor}) result;
-    if (identifier != null &&
+    final signedIn = identifier != null &&
         identifier.isNotEmpty &&
         appPassword != null &&
-        appPassword.isNotEmpty) {
-      final jwt = await _createSession(identifier, appPassword);
+        appPassword.isNotEmpty;
+
+    // Sign in first when we can, so custom feeds that refuse anonymous
+    // requests still work.
+    final jwt = signedIn ? await _createSession(identifier, appPassword) : null;
+    final headers = jwt == null ? null : {'Authorization': 'Bearer $jwt'};
+    final host = jwt == null ? _publicHost : _authHost;
+
+    final ({List feed, String? cursor}) result;
+    if (feedRef != null && feedRef.isNotEmpty) {
+      final uri = await _resolveFeedUri(feedRef);
+      final isList = uri.contains('/app.bsky.graph.list/');
+      result = await _getFeed(
+        Uri.https(
+          host,
+          isList
+              ? '/xrpc/app.bsky.feed.getListFeed'
+              : '/xrpc/app.bsky.feed.getFeed',
+          {isList ? 'list' : 'feed': uri, ...paging},
+        ),
+        headers: headers,
+        // A generator that wants a logged-in viewer answers 401/403, which
+        // otherwise reads as "Bluesky is down".
+        anonymousHint: jwt == null,
+      );
+    } else if (jwt != null) {
       result = await _getFeed(
         Uri.https(_authHost, '/xrpc/app.bsky.feed.getTimeline', paging),
-        headers: {'Authorization': 'Bearer $jwt'},
+        headers: headers,
       );
     } else {
       final handle =
           (source.params['handle'] ?? '').replaceAll(RegExp(r'^@'), '');
       if (handle.isEmpty) {
         throw SourceFetchException(
-            source.displayName, 'no handle or credentials configured');
+            source.displayName, 'no handle, feed or credentials configured');
       }
       result = await _getFeed(
         Uri.https(_publicHost, '/xrpc/app.bsky.feed.getAuthorFeed',
@@ -89,10 +118,66 @@ class BlueskyClient extends SourceClient {
         as String;
   }
 
+  /// Turns whatever the user pasted into an `at://` URI.
+  ///
+  /// People copy the address bar, not the AT URI, so a bsky.app link has to
+  /// work. The handle in that link has to be resolved to a DID, because the
+  /// record lives under the DID, not the name.
+  Future<String> _resolveFeedUri(String ref) async {
+    final trimmed = ref.trim();
+    if (trimmed.startsWith('at://')) return trimmed;
+
+    final parsed = Uri.tryParse(trimmed);
+    final segments = parsed?.pathSegments ?? const <String>[];
+    // /profile/<actor>/feed/<rkey> or /profile/<actor>/lists/<rkey>
+    final kindIndex = segments.length - 2;
+    if (segments.length < 4 ||
+        segments.first != 'profile' ||
+        !(segments[kindIndex] == 'feed' || segments[kindIndex] == 'lists')) {
+      throw SourceFetchException(
+          source.displayName,
+          'not a feed or list link — paste the address of a feed from '
+          'bsky.app, or an at:// URI');
+    }
+
+    final collection = segments[kindIndex] == 'lists'
+        ? 'app.bsky.graph.list'
+        : 'app.bsky.feed.generator';
+    return 'at://${await _resolveActor(segments[1])}/$collection/'
+        '${segments.last}';
+  }
+
+  /// Handles resolve to DIDs; a DID is already what we need.
+  Future<String> _resolveActor(String actor) async {
+    if (actor.startsWith('did:')) return actor;
+
+    final res = await httpClient.get(Uri.https(
+        _publicHost, '/xrpc/com.atproto.identity.resolveHandle',
+        {'handle': actor}));
+    if (res.statusCode != 200) {
+      throw SourceFetchException(
+          source.displayName, 'no Bluesky account named $actor');
+    }
+    final did =
+        (jsonDecode(res.body) as Map<String, dynamic>)['did'] as String?;
+    if (did == null) {
+      throw SourceFetchException(
+          source.displayName, 'no Bluesky account named $actor');
+    }
+    return did;
+  }
+
   Future<({List feed, String? cursor})> _getFeed(Uri uri,
-      {Map<String, String>? headers}) async {
+      {Map<String, String>? headers, bool anonymousHint = false}) async {
     final res = await httpClient.get(uri, headers: headers);
     if (res.statusCode != 200) {
+      if (anonymousHint &&
+          (res.statusCode == 401 || res.statusCode == 403)) {
+        throw SourceFetchException(
+            source.displayName,
+            'this feed only serves signed-in readers — add your handle and '
+            'an app password to this source');
+      }
       throw SourceFetchException(
           source.displayName, 'HTTP ${res.statusCode} from ${uri.host}');
     }
@@ -121,7 +206,8 @@ class BlueskyClient extends SourceClient {
   }
 
   @override
-  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
+  Future<PostThread> fetchThread(FeedItem item,
+      {int limit = 100, String? sort}) async {
     final uri = item.nativeId;
     if (uri == null) return PostThread.empty;
 

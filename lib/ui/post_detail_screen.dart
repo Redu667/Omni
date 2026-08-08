@@ -30,6 +30,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   bool _loading = true;
   String? _threadError;
 
+  /// Held separately from [_thread] because loading more replies splices
+  /// them into place rather than replacing the whole conversation.
+  List<ThreadEntry> _replies = const [];
+  MoreReplies? _rootMore;
+
+  String? _sort;
+  final _expanding = <MoreReplies>{};
+
   @override
   void initState() {
     super.initState();
@@ -42,10 +50,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _threadError = null;
     });
     try {
-      final thread = await context.read<AppState>().fetchThread(widget.item);
+      final thread =
+          await context.read<AppState>().fetchThread(widget.item, sort: _sort);
       if (mounted) {
         setState(() {
           _thread = thread;
+          _replies = [...thread.replies];
+          _rootMore = thread.more;
+          _expanding.clear();
           _loading = false;
         });
       }
@@ -57,6 +69,83 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         });
       }
     }
+  }
+
+  /// Reddit takes at most 100 ids at a time, so a very long thread needs the
+  /// button more than once. What's left over becomes the next batch.
+  static MoreReplies? _remainderOf(MoreReplies more, int loaded) {
+    final rest = more.ids.skip(100).toList();
+    if (rest.isEmpty) return null;
+    return MoreReplies(
+      count: (more.count - loaded).clamp(rest.length, more.count),
+      ids: rest,
+      depth: more.depth,
+    );
+  }
+
+  /// [under] is the reply whose replies were truncated, or null for the
+  /// top-level "more comments".
+  Future<void> _loadMore(MoreReplies more, {ThreadEntry? under}) async {
+    setState(() => _expanding.add(more));
+    try {
+      final loaded = await context
+          .read<AppState>()
+          .fetchMoreReplies(widget.item, more, sort: _sort);
+      if (!mounted) return;
+
+      setState(() {
+        _expanding.remove(more);
+        final remainder = _remainderOf(more, loaded.length);
+        final replies = [..._replies];
+
+        if (under == null) {
+          replies.addAll(loaded);
+          _rootMore = remainder;
+        } else {
+          final at = replies.indexOf(under);
+          if (at < 0) return;
+          replies[at] = under.withMore(remainder);
+          // Slot them in after everything already nested under this
+          // comment, which is where the missing replies belong.
+          var end = at + 1;
+          while (end < replies.length && replies[end].depth > under.depth) {
+            end++;
+          }
+          replies.insertAll(end, loaded);
+        }
+        _replies = replies;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _expanding.remove(more));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't load the rest of the thread")),
+      );
+    }
+  }
+
+  Future<void> _pickSort(Map<String, String> sorts) async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final entry in sorts.entries)
+              RadioListTile<String>(
+                value: entry.key,
+                groupValue: _sort ?? sorts.keys.first,
+                title: Text(entry.value),
+                onChanged: (v) => Navigator.of(sheetContext).pop(v),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || chosen == _sort) return;
+    setState(() => _sort = chosen);
+    await _loadThread();
   }
 
   Future<void> _openOriginal({required bool external}) async {
@@ -77,7 +166,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final theme = Theme.of(context);
     final thread = _thread ?? PostThread.empty;
     final ancestors = thread.ancestors;
-    final replies = thread.replies;
+    final replies = _replies;
+    final sorts = context.read<AppState>().commentSorts(item);
+    final rootMore = _rootMore;
 
     return Scaffold(
       appBar: AppBar(
@@ -111,7 +202,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         onRefresh: _loadThread,
         child: ListView.builder(
           padding: const EdgeInsets.only(bottom: 32),
-          itemCount: ancestors.length + replies.length + 2,
+          itemCount:
+              ancestors.length + replies.length + 2 + (rootMore == null ? 0 : 1),
           itemBuilder: (context, index) {
             // What this post was replying to, oldest first.
             if (index < ancestors.length) {
@@ -134,9 +226,27 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 count: replies.length,
                 network: item.network,
                 onRetry: _loadThread,
+                sorts: sorts,
+                sort: _sort,
+                onPickSort: sorts.isEmpty ? null : () => _pickSort(sorts),
               );
             }
-            return _ReplyTile(entry: replies[offset - 2], theme: theme);
+            if (offset - 2 >= replies.length) {
+              return _LoadMoreButton(
+                more: rootMore!,
+                loading: _expanding.contains(rootMore),
+                onPressed: () => _loadMore(rootMore),
+              );
+            }
+            final entry = replies[offset - 2];
+            return _ReplyTile(
+              entry: entry,
+              theme: theme,
+              expanding: entry.more != null && _expanding.contains(entry.more),
+              onLoadMore: entry.more == null
+                  ? null
+                  : () => _loadMore(entry.more!, under: entry),
+            );
           },
         ),
       ),
@@ -440,6 +550,9 @@ class _ThreadHeader extends StatelessWidget {
     required this.count,
     required this.network,
     required this.onRetry,
+    this.sorts = const {},
+    this.sort,
+    this.onPickSort,
   });
 
   final bool loading;
@@ -447,6 +560,11 @@ class _ThreadHeader extends StatelessWidget {
   final int count;
   final Network network;
   final VoidCallback onRetry;
+
+  /// Empty where the network has no comment ordering to choose from.
+  final Map<String, String> sorts;
+  final String? sort;
+  final VoidCallback? onPickSort;
 
   @override
   Widget build(BuildContext context) {
@@ -499,20 +617,80 @@ class _ThreadHeader extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-      child: Text(
-        '$count ${count == 1 ? 'reply' : 'replies'}',
-        style: theme.textTheme.titleSmall,
+      padding: const EdgeInsets.fromLTRB(16, 20, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$count ${count == 1 ? 'reply' : 'replies'}',
+              style: theme.textTheme.titleSmall,
+            ),
+          ),
+          if (onPickSort != null)
+            TextButton.icon(
+              onPressed: onPickSort,
+              icon: const Icon(Icons.sort, size: 18),
+              label: Text(sorts[sort ?? sorts.keys.first] ?? 'Sort'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Load the N replies the network held back."
+class _LoadMoreButton extends StatelessWidget {
+  const _LoadMoreButton({
+    required this.more,
+    required this.loading,
+    required this.onPressed,
+  });
+
+  final MoreReplies more;
+  final bool loading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: loading ? null : onPressed,
+          icon: loading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.expand_more, size: 18),
+          label: Text(
+            loading
+                ? 'Loading…'
+                : '${more.count} more '
+                    '${more.count == 1 ? 'reply' : 'replies'}',
+          ),
+        ),
       ),
     );
   }
 }
 
 class _ReplyTile extends StatelessWidget {
-  const _ReplyTile({required this.entry, required this.theme});
+  const _ReplyTile({
+    required this.entry,
+    required this.theme,
+    this.expanding = false,
+    this.onLoadMore,
+  });
 
   final ThreadEntry entry;
   final ThemeData theme;
+
+  /// Null unless this comment has replies the network held back.
+  final VoidCallback? onLoadMore;
+  final bool expanding;
 
   /// Indentation stops growing past a few levels so deep chains stay readable
   /// on a phone.
@@ -577,6 +755,12 @@ class _ReplyTile extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          if (entry.more != null && onLoadMore != null)
+            _LoadMoreButton(
+              more: entry.more!,
+              loading: expanding,
+              onPressed: onLoadMore!,
             ),
         ],
       ),

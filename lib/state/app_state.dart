@@ -394,9 +394,21 @@ class AppState extends ChangeNotifier {
     if (_sources.isNotEmpty) await refresh();
   }
 
-  Future<PostThread> fetchThread(FeedItem item) =>
+  Future<PostThread> fetchThread(FeedItem item, {String? sort}) =>
       _repository.fetchThread(item, _sources,
-          twitterConfig: _twitterConfig, twitterAccount: _twitterAccount);
+          twitterConfig: _twitterConfig,
+          twitterAccount: _twitterAccount,
+          sort: sort);
+
+  Future<List<ThreadEntry>> fetchMoreReplies(FeedItem item, MoreReplies more,
+          {String? sort}) =>
+      _repository.fetchMoreReplies(item, more, _sources,
+          twitterConfig: _twitterConfig,
+          twitterAccount: _twitterAccount,
+          sort: sort);
+
+  Map<String, String> commentSorts(FeedItem item) =>
+      _repository.commentSorts(item, _sources, twitterConfig: _twitterConfig);
 
   Future<void> updateTwitterConfig(TwitterGuestConfig config) async {
     _twitterConfig = config;

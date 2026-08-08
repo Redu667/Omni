@@ -69,19 +69,37 @@ class FeedRepository {
     List<FeedSource> sources, {
     TwitterGuestConfig? twitterConfig,
     TwitterSession? twitterAccount,
+    String? sort,
   }) async {
-    final source = sources.where((s) => s.id == item.sourceId).firstOrNull;
-    if (source == null) return PostThread.empty;
-
-    return SourceClient.forSource(
-      source,
-      _http,
-      twitterConfig: twitterConfig,
-      twitterSession: _twitterSession,
-      twitterAccount: twitterAccount,
-      redditAuth: _redditAuth,
-    ).fetchThread(item);
+    final client = _clientFor(item, sources,
+        twitterConfig: twitterConfig, twitterAccount: twitterAccount);
+    if (client == null) return PostThread.empty;
+    return client.fetchThread(item, sort: sort);
   }
+
+  /// The replies a network held back — see [MoreReplies].
+  Future<List<ThreadEntry>> fetchMoreReplies(
+    FeedItem item,
+    MoreReplies more,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+    TwitterSession? twitterAccount,
+    String? sort,
+  }) async {
+    final client = _clientFor(item, sources,
+        twitterConfig: twitterConfig, twitterAccount: twitterAccount);
+    if (client == null) return const [];
+    return client.fetchMoreReplies(item, more, sort: sort);
+  }
+
+  /// The comment orderings [item]'s network offers.
+  Map<String, String> commentSorts(
+    FeedItem item,
+    List<FeedSource> sources, {
+    TwitterGuestConfig? twitterConfig,
+  }) =>
+      _clientFor(item, sources, twitterConfig: twitterConfig)?.commentSorts ??
+      const {};
 
   /// Recent posts by whoever wrote [item], asked of its own source.
   Future<List<FeedItem>> fetchAuthorPosts(

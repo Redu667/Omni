@@ -49,8 +49,23 @@ abstract class SourceClient {
   /// The conversation around [item] — what it replied to, and the replies
   /// beneath it. Networks with no notion of a thread (RSS) return nothing,
   /// which the detail view treats as "no discussion", not as a failure.
-  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async =>
+  ///
+  /// [sort] is one of [commentSorts]; networks that don't offer a choice
+  /// ignore it.
+  Future<PostThread> fetchThread(FeedItem item,
+          {int limit = 100, String? sort}) async =>
       PostThread.empty;
+
+  /// The comment orderings this network offers, as `value: label`. Empty
+  /// where there's nothing to choose, which is how the UI decides whether to
+  /// show a sort control at all.
+  Map<String, String> get commentSorts => const {};
+
+  /// Fetches replies the network held back — see [MoreReplies]. Returns them
+  /// flattened, already at the right depth.
+  Future<List<ThreadEntry>> fetchMoreReplies(
+          FeedItem item, MoreReplies more, {String? sort}) async =>
+      const [];
 
   /// Recent posts by whoever wrote [item]. Networks with no concept of an
   /// author feed (RSS) return nothing.

@@ -57,6 +57,12 @@ class RedditClient extends SourceClient {
     final subreddit = source.params['subreddit']!.replaceAll(RegExp(r'^/?r/'), '');
     final sort = source.params['sort'] ?? 'hot';
 
+    // "Top of all time" and "top of today" are entirely different feeds, and
+    // Reddit defaults to the day. Only top and controversial take a window.
+    final window = source.params['t'];
+    final windowed =
+        (sort == 'top' || sort == 'controversial') && window != null;
+
     // Authenticated first: it isn't blocked, and it carries the full
     // listing rather than the Atom feed's reduced fields.
     final authHeaders = await _authHeaders();
@@ -65,6 +71,7 @@ class RedditClient extends SourceClient {
         Uri.https(_oauthHost, '/r/$subreddit/$sort', {
           'limit': '$limit',
           'raw_json': '1',
+          if (windowed) 't': window,
           if (cursor != null) 'after': cursor,
         }),
         headers: authHeaders,
@@ -87,6 +94,7 @@ class RedditClient extends SourceClient {
         Uri.https(host, '/r/$subreddit/$sort.json', {
           'limit': '$limit',
           'raw_json': '1',
+          if (windowed) 't': window,
           if (cursor != null) 'after': cursor,
         }),
         headers: _headers,
@@ -244,7 +252,18 @@ class RedditClient extends SourceClient {
   }
 
   @override
-  Future<PostThread> fetchThread(FeedItem item, {int limit = 100}) async {
+  Map<String, String> get commentSorts => const {
+        'confidence': 'Best',
+        'top': 'Top',
+        'new': 'New',
+        'old': 'Old',
+        'controversial': 'Controversial',
+        'qa': 'Q&A',
+      };
+
+  @override
+  Future<PostThread> fetchThread(FeedItem item,
+      {int limit = 100, String? sort}) async {
     final permalink = item.nativeId ?? item.url;
     if (permalink == null) return PostThread.empty;
 
@@ -253,8 +272,11 @@ class RedditClient extends SourceClient {
 
     for (final host in _hosts) {
       final res = await httpClient.get(
-        Uri.https(host, '${path.replaceAll(RegExp(r'/$'), '')}.json',
-            {'limit': '$limit', 'raw_json': '1', 'sort': 'top'}),
+        Uri.https(host, '${path.replaceAll(RegExp(r'/$'), '')}.json', {
+          'limit': '$limit',
+          'raw_json': '1',
+          'sort': commentSorts.containsKey(sort) ? sort! : 'confidence',
+        }),
         headers: _headers,
       );
       if (res.statusCode != 200) continue;
@@ -270,34 +292,42 @@ class RedditClient extends SourceClient {
       if (decoded is! List || decoded.length < 2) continue;
       final listings = decoded;
 
-
       final entries = <ThreadEntry>[];
-      _collectComments(
+      final root = _collectComments(
         (listings[1] as Map<String, dynamic>)['data'] as Map<String, dynamic>?,
         0,
         entries,
         limit,
       );
       // A Reddit post is always the root of its own thread.
-      return PostThread(replies: entries);
+      return PostThread(replies: entries, more: root);
     }
     return PostThread.empty;
   }
 
   /// Reddit nests replies as listings inside each comment, so walk down and
   /// flatten, carrying the depth for indentation.
-  void _collectComments(
+  ///
+  /// Returns this listing's own `more` stub — the comments Reddit truncated
+  /// at this level — so the caller can offer to load them.
+  MoreReplies? _collectComments(
     Map<String, dynamic>? listing,
     int depth,
     List<ThreadEntry> out,
     int limit,
   ) {
-    if (listing == null || out.length >= limit) return;
+    if (listing == null || out.length >= limit) return null;
 
+    MoreReplies? truncated;
     for (final child in (listing['children'] as List? ?? const [])
         .cast<Map<String, dynamic>>()) {
-      if (out.length >= limit) return;
+      if (out.length >= limit) return truncated;
+
       // "more" placeholders stand in for unloaded replies, not content.
+      if (child['kind'] == 'more') {
+        truncated = _moreFrom(child['data'] as Map<String, dynamic>?, depth);
+        continue;
+      }
       if (child['kind'] != 't1') continue;
 
       final data = child['data'] as Map<String, dynamic>?;
@@ -306,30 +336,133 @@ class RedditClient extends SourceClient {
       final bodyText = data['body'] as String? ?? '';
       if (bodyText.isEmpty) continue;
 
+      final index = out.length;
       out.add(ThreadEntry(
         depth: depth,
-        item: FeedItem(
-          id: '${source.id}:${data['name'] ?? data['id']}',
-          sourceId: source.id,
-          network: Network.reddit,
-          author: 'u/${data['author'] ?? '[deleted]'}',
-          text: htmlToPlainText(bodyText),
-          url: data['permalink'] != null
-              ? 'https://www.reddit.com${data['permalink']}'
-              : null,
-          likes: data['score'] as int?,
-          createdAt: DateTime.fromMillisecondsSinceEpoch(
-              (((data['created_utc'] as num?)?.toDouble() ?? 0) * 1000).round(),
-              isUtc: true),
-        ),
+        item: _commentItem(data),
       ));
 
       final replies = data['replies'];
       if (replies is Map<String, dynamic>) {
-        _collectComments(
+        final nested = _collectComments(
             replies['data'] as Map<String, dynamic>?, depth + 1, out, limit);
+        // Hangs off the comment whose replies were cut short, so the button
+        // appears where the missing replies belong.
+        if (nested != null) out[index] = out[index].withMore(nested);
       }
     }
+    return truncated;
+  }
+
+  static MoreReplies? _moreFrom(Map<String, dynamic>? data, int depth) {
+    if (data == null) return null;
+    final ids = (data['children'] as List? ?? const [])
+        .map((c) => c.toString())
+        .where((c) => c.isNotEmpty)
+        .toList();
+    if (ids.isEmpty) return null;
+    return MoreReplies(
+      count: (data['count'] as num?)?.toInt() ?? ids.length,
+      ids: ids,
+      depth: depth,
+    );
+  }
+
+  FeedItem _commentItem(Map<String, dynamic> data) => FeedItem(
+        id: '${source.id}:${data['name'] ?? data['id']}',
+        sourceId: source.id,
+        network: Network.reddit,
+        author: 'u/${data['author'] ?? '[deleted]'}',
+        text: htmlToPlainText(data['body'] as String? ?? ''),
+        url: data['permalink'] != null
+            ? 'https://www.reddit.com${data['permalink']}'
+            : null,
+        likes: data['score'] as int?,
+        createdAt: DateTime.fromMillisecondsSinceEpoch(
+            (((data['created_utc'] as num?)?.toDouble() ?? 0) * 1000).round(),
+            isUtc: true),
+      );
+
+  @override
+  Future<List<ThreadEntry>> fetchMoreReplies(FeedItem item, MoreReplies more,
+      {String? sort}) async {
+    // The post's fullname is what morechildren keys on, and the permalink is
+    // the only place we reliably have its id — nativeId is a path from the
+    // JSON API and an absolute URL from the Atom fallback, so parse both.
+    final segments = Uri.parse(item.nativeId ?? item.url ?? '').pathSegments;
+    final at = segments.indexOf('comments');
+    final postId =
+        at >= 0 ? segments.elementAtOrNull(at + 1) : null;
+    if (postId == null || postId.isEmpty || more.isEmpty) return const [];
+    final linkId = 't3_$postId';
+
+    // Reddit caps a morechildren request at 100 ids; the rest stays behind
+    // the next button.
+    final batch = more.ids.take(100).join(',');
+
+    for (final host in _hosts) {
+      final res = await httpClient.get(
+        Uri.https(host, '/api/morechildren.json', {
+          'api_type': 'json',
+          'link_id': linkId,
+          'children': batch,
+          'raw_json': '1',
+          'sort': commentSorts.containsKey(sort) ? sort! : 'confidence',
+        }),
+        headers: _headers,
+      );
+      if (res.statusCode != 200) continue;
+
+      final Object? decoded;
+      try {
+        decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      } on FormatException {
+        continue;
+      }
+      if (decoded is! Map<String, dynamic>) continue;
+
+      final things = ((decoded['json'] as Map<String, dynamic>?)?['data']
+          as Map<String, dynamic>?)?['things'] as List?;
+      if (things == null) continue;
+
+      return _flatten(things.cast<Map<String, dynamic>>(), more.depth);
+    }
+    return const [];
+  }
+
+  /// `morechildren` answers with a flat list rather than a tree, so depth has
+  /// to be rebuilt from each comment's parent. Reddit sends parents before
+  /// their children, which is what makes one pass enough.
+  List<ThreadEntry> _flatten(List<Map<String, dynamic>> things, int baseDepth) {
+    final depths = <String, int>{};
+    final out = <ThreadEntry>[];
+
+    for (final thing in things) {
+      final data = thing['data'] as Map<String, dynamic>?;
+      if (data == null) continue;
+
+      final parent = data['parent_id'] as String?;
+      final depth = parent != null && depths.containsKey(parent)
+          ? depths[parent]! + 1
+          : baseDepth;
+
+      if (thing['kind'] == 'more') {
+        // A nested truncation: attach it to the parent we already emitted.
+        final more = _moreFrom(data, depth);
+        final index =
+            out.lastIndexWhere((e) => e.item.id == '${source.id}:$parent');
+        if (more != null && index >= 0) out[index] = out[index].withMore(more);
+        continue;
+      }
+      if (thing['kind'] != 't1') continue;
+
+      final name = data['name'] as String?;
+      if (name != null) depths[name] = depth;
+
+      if ((data['body'] as String? ?? '').isEmpty) continue;
+      out.add(ThreadEntry(depth: depth, item: _commentItem(data)));
+    }
+    return out;
   }
 
   /// Returns null when the body isn't a Reddit listing — an HTML block page,

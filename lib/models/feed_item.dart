@@ -266,16 +266,52 @@ class FeedItem {
 /// One post in a reply thread, flattened with its nesting level so the UI
 /// can indent without recursing through a tree.
 class ThreadEntry {
-  const ThreadEntry({required this.item, this.depth = 0});
+  const ThreadEntry({required this.item, this.depth = 0, this.more});
 
   final FeedItem item;
   final int depth;
+
+  /// Replies to this comment that the network didn't send, if any.
+  final MoreReplies? more;
+
+  ThreadEntry withMore(MoreReplies? more) =>
+      ThreadEntry(item: item, depth: depth, more: more);
+}
+
+/// A pointer to replies a network held back.
+///
+/// Reddit truncates long and deep comment trees and hands back a token
+/// instead. Dropping it silently is how a 400-comment thread quietly becomes
+/// a 40-comment one, so it's carried and offered as "load more".
+class MoreReplies {
+  const MoreReplies({
+    required this.count,
+    required this.ids,
+    this.depth = 0,
+  });
+
+  /// How many comments are hidden, as the network counts them.
+  final int count;
+
+  /// Opaque ids to hand back when asking for them.
+  final List<String> ids;
+
+  /// Indentation the loaded replies should appear at.
+  final int depth;
+
+  /// Reddit also emits "continue this thread" stubs with nothing to request.
+  /// Those can't be loaded in place, so they aren't offered.
+  bool get isEmpty => ids.isEmpty;
 }
 
 /// The conversation around a post: what it was replying to, and what
 /// replied to it.
 class PostThread {
-  const PostThread({this.ancestors = const [], this.replies = const []});
+  const PostThread({
+    this.ancestors = const [],
+    this.replies = const [],
+    this.more,
+  });
 
   static const empty = PostThread();
 
@@ -284,6 +320,9 @@ class PostThread {
   final List<FeedItem> ancestors;
 
   final List<ThreadEntry> replies;
+
+  /// Top-level comments the network didn't send.
+  final MoreReplies? more;
 
   bool get isEmpty => ancestors.isEmpty && replies.isEmpty;
 }

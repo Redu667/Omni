@@ -82,8 +82,8 @@ Closest comparison: the official app, Graysky, deck.blue.
 | Home timeline | ✓ | Via app password. |
 | Public author feed | ✓ | No auth needed. |
 | Thread replies | ✓ | |
-| **Custom feeds** | ✗ | Bluesky's headline feature — "Discover", "What's Hot", and thousands of community algorithms — is entirely absent. Arguably the biggest single omission for Bluesky users. |
-| **Lists** | ✗ | No list timelines or moderation lists. |
+| **Custom feeds** | ✓ | Paste a feed's bsky.app link (or an `at://` URI) and it becomes a source. The handle in the link is resolved to a DID, and signing in routes the request through the authenticated host so generators that refuse anonymous readers still work. |
+| **Lists** | ◐ | List feeds work the same way, from a `/lists/` link. Moderation lists aren't applied. |
 | **Quote posts** | ✓ | The quoted post renders inline; deleted and blocked quotes are omitted rather than shown blank. |
 | **External embed cards** | ✓ | |
 | **Labels & moderation** | ◐ | Adult and graphic-media labels hide the post behind a reveal. Custom labeler subscriptions and per-label preferences aren't supported. |
@@ -104,10 +104,10 @@ Closest comparison: Infinity, RedReader, Boost.
 | Subreddit listings | ✓ | Multireddits (`a+b+c`) work. |
 | Sort (hot/new/top/rising) | ✓ | Selectable when adding, changeable afterwards. |
 | Comments with nesting | ✓ | |
-| **Time filter for `top`** | ✗ | `top` always means all-time; no hour/day/week/month/year. |
-| **Comment sort** | ✗ | Hardcoded to `top`; no best/new/controversial/old. |
+| **Time filter for `top`** | ✓ | Hour through all-time, offered only for `top` and `controversial` — Reddit ignores it elsewhere. |
+| **Comment sort** | ✓ | Best, top, new, old, controversial and Q&A, chosen from the thread itself. |
 | **Collapse comment threads** | ✗ | Long chains can't be folded, which makes big threads unreadable on a phone. |
-| **Load more comments** | ✗ | "more" stubs are skipped, so deep threads are silently truncated. |
+| **Load more comments** | ✓ | "N more replies" loads in place, at the right indentation, both at the top level and under a specific comment. Reddit's 100-per-request cap is handled by leaving the remainder behind the next button. "Continue this thread" stubs, which carry nothing to request, aren't offered. |
 | **Galleries** | ✓ | Every image of a gallery is carried, with captions as alt text. |
 | **Video** | ✗ | `v.redd.it` unsupported. |
 | **Polls** | ✗ | |
@@ -164,11 +164,10 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
-2. **Reddit "load more" comments** — deep threads are quietly cut off today.
-3. **Mark read by scrolling past** — the half of read-state that's still missing.
-4. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
-5. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
-6. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
-7. **Video playback** — big lift, touches every network.
-8. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
+1. **Mark read by scrolling past** — the half of read-state that's still missing.
+2. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
+3. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
+4. **Collapse comment threads** — now that threads load fully, folding them matters more.
+5. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
+6. **Video playback** — big lift, touches every network.
+7. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
