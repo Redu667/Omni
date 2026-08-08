@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/feed_item.dart';
+import '../models/collection.dart';
 import '../models/feed_filters.dart';
 import '../models/feed_source.dart';
 import '../models/network.dart';
@@ -230,6 +231,73 @@ class AppState extends ChangeNotifier {
   /// null = show everything; otherwise only this network.
   Network? _filter;
 
+  /// Set when viewing a collection, which supersedes the network filter.
+  String? _collectionId;
+
+  List<Collection> _collections = [];
+
+  List<Collection> get collections => List.unmodifiable(_collections);
+
+  /// The collection currently being viewed, if any.
+  Collection? get activeCollection => _collectionId == null
+      ? null
+      : _collections.where((c) => c.id == _collectionId).firstOrNull;
+
+  /// What the app bar should call the current view.
+  String get viewTitle =>
+      activeCollection?.name ?? _filter?.label ?? 'Omni';
+
+  void showCollection(String? id) {
+    _collectionId = id;
+    if (id != null) _filter = null;
+    notifyListeners();
+  }
+
+  Future<void> addCollection(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    _collections = [
+      ..._collections,
+      Collection(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: trimmed,
+      ),
+    ];
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  Future<void> renameCollection(String id, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    _collections = [
+      for (final c in _collections) c.id == id ? c.copyWith(name: trimmed) : c,
+    ];
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  Future<void> removeCollection(String id) async {
+    _collections = _collections.where((c) => c.id != id).toList();
+    if (_collectionId == id) _collectionId = null;
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  Future<void> setCollectionMembership(
+      String collectionId, String sourceId, bool member) async {
+    _collections = [
+      for (final c in _collections)
+        c.id == collectionId ? c.withSource(sourceId, member) : c,
+    ];
+    await _settingsStore.saveCollections(_collections);
+    notifyListeners();
+  }
+
+  /// Collections a given source belongs to, for the sources list.
+  List<Collection> collectionsFor(String sourceId) =>
+      [for (final c in _collections) if (c.contains(sourceId)) c];
+
   List<FeedSource> get sources => List.unmodifiable(_sources);
   List<String> get errors => List.unmodifiable(_errors);
   bool get loading => _loading;
@@ -242,8 +310,13 @@ class AppState extends ChangeNotifier {
 
   /// Everything that passes the network chip and mute filters, before
   /// read-hiding — so the unread count doesn't change as posts are hidden.
-  Iterable<FeedItem> get _visibleItems => _items.where((i) =>
-      (_filter == null || i.network == _filter) && !_filters.hides(i));
+  Iterable<FeedItem> get _visibleItems {
+    final collection = activeCollection;
+    return _items.where((i) =>
+        (collection == null || collection.contains(i.sourceId)) &&
+        (_filter == null || i.network == _filter) &&
+        !_filters.hides(i));
+  }
 
   List<FeedItem> get items => List.unmodifiable(
       _hideRead ? _visibleItems.where((i) => !_readIds.contains(i.id))
@@ -256,6 +329,7 @@ class AppState extends ChangeNotifier {
     _sources = await _store.load();
     _readIds = await _settingsStore.loadReadIds();
     _hideRead = await _settingsStore.loadHideRead();
+    _collections = await _settingsStore.loadCollections();
 
     // Show the cached timeline immediately; the network refresh follows.
     final cached = await _cache.load();
@@ -360,6 +434,11 @@ class AppState extends ChangeNotifier {
   Future<void> removeSource(String id) async {
     _sources = _sources.where((s) => s.id != id).toList();
     _items = _items.where((i) => i.sourceId != id).toList();
+    // A removed source shouldn't linger as a phantom member.
+    _collections = [
+      for (final c in _collections) c.withSource(id, false),
+    ];
+    await _settingsStore.saveCollections(_collections);
     if (_filter != null && !activeNetworks.contains(_filter)) _filter = null;
     await _store.save(_sources);
     notifyListeners();
@@ -395,6 +474,7 @@ class AppState extends ChangeNotifier {
 
   void setFilter(Network? network) {
     _filter = network;
+    if (network != null) _collectionId = null;
     notifyListeners();
   }
 

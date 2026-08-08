@@ -34,7 +34,11 @@ Moshidon, but spanning multiple networks.
   entirely if you prefer, with mark-all-read a tap away.
 - **Alt text** — image descriptions are carried through from Mastodon,
   Bluesky and X, shown under the image and exposed to screen readers.
-- **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
+- **Collections** — group sources across networks under one name. Put a
+  subreddit, an account and a feed about the same subject together and read
+  them as one timeline.
+- **Sidebar navigation** — collections and networks live in a drawer rather
+  than a chip bar that would overflow once you have a few of each.
 - **Content warnings honoured** — Mastodon spoilers and Reddit's over-18 flag
   hide a post's body and media behind a reveal rather than showing content the
   author marked as hidden.

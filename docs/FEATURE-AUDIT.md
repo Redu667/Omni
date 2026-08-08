@@ -30,6 +30,7 @@ whether Omni is usable as a daily reader at all.
 | **Mute filters** | ◐ | Words and accounts work. No regex, no per-source scoping, no time-limited mutes, no muting by hashtag or domain. |
 | **Display settings** | ◐ | Material You wallpaper colours plus a light/dark/system override. No text size, density, or compact layout. |
 | **Per-source refresh interval** | ✗ | Everything refreshes together, on demand only. |
+| **Collections / folders** | ✓ | User-made groupings that span networks, selected from the sidebar. |
 | **Cross-post de-duplication** | ✗ | The same story from an RSS feed and a subreddit appears twice. Only exact id collisions are deduped. |
 | **Translation** | ✗ | No inline translation of foreign-language posts. |
 
@@ -135,7 +136,7 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 | OPML import | ✓ | |
 | **OPML export** | ✓ | Settings → Export OPML. |
 | **Full-text extraction** | ✗ | Truncated feeds stay truncated. A readability pass would fix the many feeds that publish only a teaser. |
-| **Folders / categories** | ✗ | Flat list only; no grouping, and OPML folder structure is discarded on import. |
+| **Folders / categories** | ◐ | Collections group feeds (and everything else) across networks. OPML folder structure is still discarded on import. |
 | **Unread counts per feed** | ✗ | |
 | **Podcast enclosures** | ✗ | Audio enclosures are ignored — no playback, no queue. |
 | **Per-feed favicon** | ✗ | All feeds share one generic icon, making a mixed timeline harder to scan. |

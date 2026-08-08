@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
 import 'add_source_screen.dart';
+import 'app_drawer.dart';
 import 'post_card.dart';
 import 'saved_screen.dart';
 import 'settings_screen.dart';
@@ -17,8 +18,9 @@ class HomeScreen extends StatelessWidget {
     final state = context.watch<AppState>();
 
     return Scaffold(
+      drawer: const AppDrawer(),
       appBar: AppBar(
-        title: const Text('Omni'),
+        title: Text(state.viewTitle),
         actions: [
           if (state.saved.isNotEmpty)
             IconButton(
@@ -48,10 +50,10 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
         ],
-        bottom: state.activeNetworks.length > 1
+        bottom: state.activeCollection != null || state.filter != null
             ? PreferredSize(
-                preferredSize: const Size.fromHeight(52),
-                child: _FilterBar(state: state),
+                preferredSize: const Size.fromHeight(40),
+                child: _ViewingBanner(state: state),
               )
             : null,
       ),
@@ -71,44 +73,56 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class _FilterBar extends StatelessWidget {
-  const _FilterBar({required this.state});
+/// Shows which slice of the feed is on screen when it isn't everything,
+/// with a way back to the whole timeline.
+class _ViewingBanner extends StatelessWidget {
+  const _ViewingBanner({required this.state});
 
   final AppState state;
 
   @override
   Widget build(BuildContext context) {
-    final networks = state.activeNetworks.toList()
-      ..sort((a, b) => a.index.compareTo(b.index));
+    final theme = Theme.of(context);
+    final collection = state.activeCollection;
 
     return SizedBox(
-      height: 52,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: const Text('All'),
-              selected: state.filter == null,
-              onSelected: (_) => state.setFilter(null),
+      height: 40,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+        child: Row(
+          children: [
+            Icon(
+              collection != null
+                  ? Icons.folder_outlined
+                  : state.filter!.icon,
+              size: 15,
+              color: collection != null
+                  ? theme.colorScheme.outline
+                  : state.filter!.color,
             ),
-          ),
-          for (final network in networks)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                avatar: Icon(network.icon,
-                    size: 16,
-                    color: state.filter == network ? null : network.color),
-                label: Text(network.label),
-                selected: state.filter == network,
-                onSelected: (_) =>
-                    state.setFilter(state.filter == network ? null : network),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                collection != null
+                    ? 'Showing ${collection.name}'
+                    : 'Showing ${state.filter!.label} only',
+                style: theme.textTheme.bodySmall,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-        ],
+            TextButton(
+              onPressed: () {
+                state.showCollection(null);
+                state.setFilter(null);
+              },
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(0, 30),
+              ),
+              child: const Text('Show all'),
+            ),
+          ],
+        ),
       ),
     );
   }
