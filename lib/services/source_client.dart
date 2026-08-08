@@ -4,6 +4,7 @@ import '../models/feed_item.dart';
 import '../models/feed_source.dart';
 import '../models/network.dart';
 import 'bluesky_client.dart';
+import 'bluesky_session.dart';
 import 'mastodon_client.dart';
 import 'reddit_auth.dart';
 import 'reddit_client.dart';
@@ -86,10 +87,12 @@ abstract class SourceClient {
     TwitterGuestSession? twitterSession,
     TwitterSession? twitterAccount,
     RedditAuth? redditAuth,
+    BlueskySessions? blueskySessions,
   }) =>
       switch (source.network) {
         Network.mastodon => MastodonClient(source, httpClient),
-        Network.bluesky => BlueskyClient(source, httpClient),
+        Network.bluesky => BlueskyClient(source, httpClient,
+            sessions: blueskySessions ?? BlueskySessions()),
         Network.reddit => RedditClient(source, httpClient, auth: redditAuth),
         Network.rss => RssClient(source, httpClient),
         Network.twitter => source.params['mode'] == 'official'

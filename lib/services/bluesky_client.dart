@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../models/feed_item.dart';
 import '../models/network.dart';
+import 'bluesky_session.dart';
 import 'source_client.dart';
 
 /// Bluesky (AT Protocol).
@@ -15,7 +16,11 @@ import 'source_client.dart';
 /// Credentials, when present, apply to all three: some feed generators only
 /// answer authenticated requests.
 class BlueskyClient extends SourceClient {
-  const BlueskyClient(super.source, super.httpClient);
+  BlueskyClient(super.source, super.httpClient, {BlueskySessions? sessions})
+      : sessions = sessions ?? BlueskySessions();
+
+  /// Shared across refreshes so one sign-in serves many fetches.
+  final BlueskySessions sessions;
 
   /// Labels Bluesky's own moderation treats as adult content.
   static const _adultLabels = {
@@ -55,43 +60,58 @@ class BlueskyClient extends SourceClient {
 
     // Sign in first when we can, so custom feeds that refuse anonymous
     // requests still work.
-    final jwt = signedIn ? await _createSession(identifier, appPassword) : null;
-    final headers = jwt == null ? null : {'Authorization': 'Bearer $jwt'};
-    final host = jwt == null ? _publicHost : _authHost;
+    var jwt = signedIn ? await _createSession(identifier, appPassword) : null;
 
-    final ({List feed, String? cursor}) result;
-    if (feedRef != null && feedRef.isNotEmpty) {
-      final uri = await _resolveFeedUri(feedRef);
-      final isList = uri.contains('/app.bsky.graph.list/');
-      result = await _getFeed(
-        Uri.https(
-          host,
-          isList
-              ? '/xrpc/app.bsky.feed.getListFeed'
-              : '/xrpc/app.bsky.feed.getFeed',
-          {isList ? 'list' : 'feed': uri, ...paging},
-        ),
-        headers: headers,
-        // A generator that wants a logged-in viewer answers 401/403, which
-        // otherwise reads as "Bluesky is down".
-        anonymousHint: jwt == null,
-      );
-    } else if (jwt != null) {
-      result = await _getFeed(
-        Uri.https(_authHost, '/xrpc/app.bsky.feed.getTimeline', paging),
-        headers: headers,
-      );
-    } else {
+    Future<({List feed, String? cursor})> run(String? jwt) async {
+      final headers = jwt == null ? null : {'Authorization': 'Bearer $jwt'};
+      final host = jwt == null ? _publicHost : _authHost;
+
+      if (feedRef != null && feedRef.isNotEmpty) {
+        final uri = await _resolveFeedUri(feedRef);
+        final isList = uri.contains('/app.bsky.graph.list/');
+        return _getFeed(
+          Uri.https(
+            host,
+            isList
+                ? '/xrpc/app.bsky.feed.getListFeed'
+                : '/xrpc/app.bsky.feed.getFeed',
+            {isList ? 'list' : 'feed': uri, ...paging},
+          ),
+          headers: headers,
+          // A generator that wants a logged-in viewer answers 401/403, which
+          // otherwise reads as "Bluesky is down".
+          anonymousHint: jwt == null,
+        );
+      }
+      if (jwt != null) {
+        return _getFeed(
+          Uri.https(_authHost, '/xrpc/app.bsky.feed.getTimeline', paging),
+          headers: headers,
+        );
+      }
       final handle =
           (source.params['handle'] ?? '').replaceAll(RegExp(r'^@'), '');
       if (handle.isEmpty) {
         throw SourceFetchException(
             source.displayName, 'no handle, feed or credentials configured');
       }
-      result = await _getFeed(
+      return _getFeed(
         Uri.https(_publicHost, '/xrpc/app.bsky.feed.getAuthorFeed',
             {'actor': handle, ...paging}),
       );
+    }
+
+    ({List feed, String? cursor}) result;
+    try {
+      result = await run(jwt);
+    } on _Unauthorized {
+      // A cached token outlived its welcome. Signing in again is the whole
+      // point of keeping the password around, so do it once and retry
+      // rather than reporting a failure the user can't act on.
+      if (!signedIn) rethrow;
+      sessions.invalidate(identifier);
+      jwt = await _createSession(identifier, appPassword, forceRefresh: true);
+      result = await run(jwt);
     }
 
     return SourcePage(
@@ -104,18 +124,14 @@ class BlueskyClient extends SourceClient {
     );
   }
 
-  Future<String> _createSession(String identifier, String appPassword) async {
-    final res = await httpClient.post(
-      Uri.https(_authHost, '/xrpc/com.atproto.server.createSession'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'identifier': identifier, 'password': appPassword}),
-    );
-    if (res.statusCode != 200) {
-      throw SourceFetchException(
-          source.displayName, 'sign-in failed (HTTP ${res.statusCode})');
+  Future<String> _createSession(String identifier, String appPassword,
+      {bool forceRefresh = false}) async {
+    try {
+      return await sessions.accessToken(httpClient, identifier, appPassword,
+          forceRefresh: forceRefresh);
+    } on BlueskyAuthException catch (e) {
+      throw SourceFetchException(source.displayName, e.toString());
     }
-    return (jsonDecode(res.body) as Map<String, dynamic>)['accessJwt']
-        as String;
   }
 
   /// Turns whatever the user pasted into an `at://` URI.
@@ -178,6 +194,9 @@ class BlueskyClient extends SourceClient {
             'this feed only serves signed-in readers — add your handle and '
             'an app password to this source');
       }
+      // Signed-in and rejected: the caller decides whether that's worth a
+      // fresh sign-in or is simply a failure.
+      if (res.statusCode == 401 && headers != null) throw const _Unauthorized();
       throw SourceFetchException(
           source.displayName, 'HTTP ${res.statusCode} from ${uri.host}');
     }
@@ -389,4 +408,10 @@ class BlueskyClient extends SourceClient {
               DateTime.now().toUtc(),
     );
   }
+}
+
+/// A token Bluesky no longer accepts. Internal: it never escapes the client,
+/// which either retries with a fresh token or reports a real failure.
+class _Unauthorized implements Exception {
+  const _Unauthorized();
 }

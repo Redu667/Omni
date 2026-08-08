@@ -91,7 +91,7 @@ Closest comparison: the official app, Graysky, deck.blue.
 | **Interactions** | ✗ | No like, repost, reply, or follow. |
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
 | **Video** | ✗ | |
-| **Session reuse** | ✗ | Signs in fresh on every refresh instead of caching the JWT — slower, and needlessly hard on their servers. |
+| **Session reuse** | ✓ | One sign-in serves every Bluesky source and survives between refreshes; the token is renewed with the refresh token rather than the password, and a rejected token triggers one fresh sign-in and a retry instead of a visible failure. |
 
 ---
 
@@ -167,7 +167,6 @@ Ordered by value-per-effort rather than by how impressive they sound.
 1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
 2. **Collapse comment threads** — now that threads load fully, folding them matters more.
 3. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
-4. **Bluesky session reuse** — signing in on every refresh is slow and impolite.
-5. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
-6. **Video playback** — big lift, touches every network.
-7. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
+4. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
+5. **Video playback** — big lift, touches every network.
+6. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.

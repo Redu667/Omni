@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/feed_item.dart';
 import '../models/feed_source.dart';
+import 'bluesky_session.dart';
 import 'reddit_auth.dart';
 import 'resilient_client.dart';
 import 'source_client.dart';
@@ -62,6 +63,10 @@ class FeedRepository {
   /// Shared across refreshes so one anonymous X session serves every
   /// Twitter source instead of activating a token per account.
   final _twitterSession = TwitterGuestSession();
+
+  /// Likewise for Bluesky: one sign-in serves every Bluesky source and
+  /// survives between refreshes.
+  final _blueskySessions = BlueskySessions();
 
   /// Replies to [item], asked of whichever source produced it.
   Future<PostThread> fetchThread(
@@ -136,6 +141,7 @@ class FeedRepository {
       _http,
       twitterConfig: twitterConfig,
       twitterSession: _twitterSession,
+      blueskySessions: _blueskySessions,
       twitterAccount: twitterAccount,
       redditAuth: _redditAuth,
     );
@@ -169,6 +175,7 @@ class FeedRepository {
           _http,
           twitterConfig: twitterConfig,
           twitterSession: _twitterSession,
+          blueskySessions: _blueskySessions,
           twitterAccount: twitterAccount,
           redditAuth: _redditAuth,
         ).fetchPage(limit: limitPerSource, cursor: cursors?[source.id]);
