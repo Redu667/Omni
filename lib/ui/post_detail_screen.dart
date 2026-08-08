@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
+import 'image_viewer_screen.dart';
 import 'post_actions.dart';
 import 'post_extras.dart';
 import 'post_view_screen.dart';
@@ -323,28 +324,39 @@ class _PostBodyState extends State<_PostBody> {
               padding: const EdgeInsets.only(top: 16),
               child: Column(
                 children: [
-                  for (final image in item.media)
+                  for (final (index, image) in item.media.indexed)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Semantics(
-                              label: image.alt,
-                              image: true,
-                              child: CachedNetworkImage(
-                                imageUrl: image.url,
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                                placeholder: (_, _) => Container(
-                                  height: 180,
-                                  color:
-                                      theme.colorScheme.surfaceContainerHighest,
+                          GestureDetector(
+                            // Opens the picture full-screen, where it can be
+                            // zoomed — inline it's capped to the column width.
+                            onTap: () =>
+                                Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => ImageViewerScreen(
+                                media: item.media,
+                                initialIndex: index,
+                              ),
+                            )),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Semantics(
+                                label: image.alt,
+                                image: true,
+                                child: CachedNetworkImage(
+                                  imageUrl: image.url,
+                                  fit: BoxFit.contain,
+                                  width: double.infinity,
+                                  placeholder: (_, _) => Container(
+                                    height: 180,
+                                    color: theme
+                                        .colorScheme.surfaceContainerHighest,
+                                  ),
+                                  errorWidget: (_, _, _) =>
+                                      const SizedBox.shrink(),
                                 ),
-                                errorWidget: (_, _, _) =>
-                                    const SizedBox.shrink(),
                               ),
                             ),
                           ),

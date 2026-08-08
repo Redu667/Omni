@@ -35,12 +35,12 @@ whether Omni is usable as a daily reader at all.
 | **Read / unread state** | ◐ | Opening a post marks it read; read posts dim, or hide entirely by choice, and there's mark-all-read. Not yet: marking read by scrolling past. |
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
 | **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
-| **Search** | ✗ | Neither within the loaded feed nor against each network's search API. |
-| **Image viewer** | ◐ | The detail view shows every image; the timeline shows the first with a count badge. Still no tap-to-zoom, pan, or saving. |
+| **Search** | ◐ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip. Not yet: querying each network's own search API for posts you haven't loaded. |
+| **Image viewer** | ◐ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture. Not yet: saving to the device. |
 | **Video** | ✗ | No playback anywhere. Reddit `v.redd.it`, Mastodon and Bluesky video, and X video are all silently dropped. |
 | **Alt text** | ✓ | Carried from Mastodon, Bluesky and X, shown under each image in the detail view, exposed to screen readers, and flagged with an ALT badge in the timeline. |
 | **Link preview cards** | ✓ | Mastodon cards, Bluesky external embeds and Reddit outbound links render as tappable cards. |
-| **Share sheet** | ✗ | Can copy a link from the detail menu; can't share to another app. |
+| **Share sheet** | ✓ | Long-press a post to hand its link to Android's share sheet, or copy it. |
 | **Content warnings** | ✓ | Mastodon spoilers and Reddit `over_18` hide the body behind a reveal. |
 | **Mute filters** | ◐ | Words and accounts work. No regex, no per-source scoping, no time-limited mutes, no muting by hashtag or domain. |
 | **Display settings** | ◐ | Material You wallpaper colours plus a light/dark/system override. No text size, density, or compact layout. |
@@ -164,13 +164,11 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Full-screen image viewer** — tap to zoom, swipe a gallery, save. The most visible day-to-day rough edge, and now that galleries carry every image it matters more.
-2. **Search** — across the loaded feed first, which needs no new API work at all.
-3. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
-4. **Reddit "load more" comments** — deep threads are quietly cut off today.
-5. **Mark read by scrolling past** — the half of read-state that's still missing.
-6. **Share sheet** — can copy a link, can't share to another app.
-7. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
-8. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
-9. **Video playback** — big lift, touches every network.
-10. **Custom emoji** — Mastodon `:shortcodes:` still render literally.
+1. **Bluesky custom feeds** — the main reason Bluesky users use Bluesky.
+2. **Reddit "load more" comments** — deep threads are quietly cut off today.
+3. **Mark read by scrolling past** — the half of read-state that's still missing.
+4. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
+5. **Mastodon lists & hashtag timelines** — a major curation tool, entirely absent.
+6. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
+7. **Video playback** — big lift, touches every network.
+8. **Custom emoji** — Mastodon `:shortcodes:` still render literally.

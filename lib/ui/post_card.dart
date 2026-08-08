@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/feed_item.dart';
 import '../models/network.dart';
 import '../state/app_state.dart';
+import 'image_viewer_screen.dart';
 import 'post_actions.dart';
 import 'post_extras.dart';
 import 'post_detail_screen.dart';
@@ -122,7 +123,13 @@ class _PostCardState extends State<PostCard> {
               if (item.imageUrls.isNotEmpty && (!item.needsReveal || _revealed))
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
-                  child: Stack(
+                  child: GestureDetector(
+                    // Tapping the picture means "look at the picture"; the
+                    // rest of the card still opens the post.
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ImageViewerScreen(media: item.media),
+                    )),
+                    child: Stack(
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(12),
@@ -157,6 +164,7 @@ class _PostCardState extends State<PostCard> {
                           child: _Chip(label: 'ALT', theme: theme),
                         ),
                     ],
+                    ),
                   ),
                 ),
               if (!item.needsReveal || _revealed) ...[

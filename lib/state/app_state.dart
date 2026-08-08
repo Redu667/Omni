@@ -361,6 +361,11 @@ class AppState extends ChangeNotifier {
       _hideRead ? _visibleItems.where((i) => !_readIds.contains(i.id))
                 : _visibleItems);
 
+  /// Every post loaded, ignoring the collection, network chip and mute
+  /// filters. Search uses this: when you're hunting for a specific post you
+  /// don't want the answer withheld because a chip is set somewhere else.
+  List<FeedItem> get allItems => List.unmodifiable(_items);
+
   /// Networks that currently have at least one configured source.
   Set<Network> get activeNetworks => _sources.map((s) => s.network).toSet();
 

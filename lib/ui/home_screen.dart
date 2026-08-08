@@ -7,6 +7,7 @@ import 'add_source_screen.dart';
 import 'app_drawer.dart';
 import 'post_card.dart';
 import 'saved_screen.dart';
+import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'starter_picks_screen.dart';
 
@@ -22,6 +23,14 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(state.viewTitle),
         actions: [
+          if (state.allItems.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: 'Search your feed',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SearchScreen()),
+              ),
+            ),
           if (state.saved.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.bookmark_border),
