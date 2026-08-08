@@ -131,7 +131,7 @@ class _PostCardState extends State<PostCard> {
                     // Tapping the picture means "look at the picture"; the
                     // rest of the card still opens the post.
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => item.media.first.kind.isVideo
+                      builder: (_) => item.media.first.kind.isPlayable
                           // One tap to watch, rather than a gallery with a
                           // single frame in it.
                           ? VideoPlayerScreen(media: item.media.first)
@@ -171,7 +171,7 @@ class _PostCardState extends State<PostCard> {
                           bottom: 8,
                           child: _Chip(label: 'ALT', theme: theme),
                         ),
-                      if (item.media.first.kind.isVideo)
+                      if (item.media.first.kind.isPlayable)
                         Positioned.fill(
                           child: Center(
                             child: _PlayBadge(media: item.media.first),
@@ -432,7 +432,11 @@ class _PlayBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            media.kind == MediaKind.gif ? Icons.gif_box_outlined : Icons.play_arrow,
+            switch (media.kind) {
+              MediaKind.gif => Icons.gif_box_outlined,
+              MediaKind.audio => Icons.headphones,
+              _ => Icons.play_arrow,
+            },
             color: Colors.white,
             size: 26,
           ),

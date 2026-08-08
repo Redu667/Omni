@@ -98,3 +98,20 @@ DateTime? parseRfc822OrIso(String? input) {
     int.parse(m.group(6) ?? '0'),
   ).subtract(Duration(minutes: offsetMinutes));
 }
+
+/// Parses a podcast duration, which feeds write as either a plain number of
+/// seconds or `HH:MM:SS` / `MM:SS`.
+int? parseDurationSeconds(String? raw) {
+  final text = raw?.trim();
+  if (text == null || text.isEmpty) return null;
+
+  if (!text.contains(':')) return int.tryParse(text);
+
+  var total = 0;
+  for (final part in text.split(':')) {
+    final value = int.tryParse(part.trim());
+    if (value == null) return null;
+    total = total * 60 + value;
+  }
+  return total;
+}

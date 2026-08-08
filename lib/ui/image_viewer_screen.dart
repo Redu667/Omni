@@ -93,9 +93,9 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               // Zooming a video's poster frame would be a lie about what's
               // on screen, so only images pan and scale.
               transformationController:
-                  i == _index && !widget.media[i].kind.isVideo ? _zoom : null,
+                  i == _index && !widget.media[i].kind.isPlayable ? _zoom : null,
               minScale: 1,
-              maxScale: widget.media[i].kind.isVideo ? 1 : 5,
+              maxScale: widget.media[i].kind.isPlayable ? 1 : 5,
               child: Center(
                 child: Stack(
                   alignment: Alignment.center,
@@ -111,7 +111,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                             color: Colors.white54, size: 48),
                       ),
                     ),
-                    if (widget.media[i].kind.isVideo)
+                    if (widget.media[i].kind.isPlayable)
                       _PlayButton(media: widget.media[i]),
                   ],
                 ),

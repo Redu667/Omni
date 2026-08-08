@@ -5,10 +5,10 @@ import 'package:video_player/video_player.dart';
 
 import '../models/feed_item.dart';
 
-/// Plays a video attached to a post.
+/// Plays a video, GIF or audio enclosure attached to a post.
 ///
 /// Deliberately plain: play/pause, a scrubber, and mute. Omni is a reader,
-/// and the alternative to a simple player was no video at all.
+/// and the alternative to a simple player was no playback at all.
 class VideoPlayerScreen extends StatefulWidget {
   const VideoPlayerScreen({super.key, required this.media});
 
@@ -82,12 +82,18 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.videocam_off_outlined,
-                color: Colors.white54, size: 48),
+            Icon(
+                widget.media.kind == MediaKind.audio
+                    ? Icons.music_off_outlined
+                    : Icons.videocam_off_outlined,
+                color: Colors.white54,
+                size: 48),
             const SizedBox(height: 12),
-            const Text(
-              "This video wouldn't play here.",
-              style: TextStyle(color: Colors.white70),
+            Text(
+              widget.media.kind == MediaKind.audio
+                  ? "This audio wouldn't play here."
+                  : "This video wouldn't play here.",
+              style: const TextStyle(color: Colors.white70),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
@@ -120,12 +126,27 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        // Audio has no picture to show, so the cover art takes the space a
+        // video would fill rather than leaving a black rectangle.
         AspectRatio(
-          aspectRatio: _controller.value.aspectRatio,
+          aspectRatio: widget.media.kind == MediaKind.audio
+              ? 1
+              : _controller.value.aspectRatio,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              VideoPlayer(_controller),
+              if (widget.media.kind == MediaKind.audio)
+                widget.media.thumbnailUrl == null
+                    ? const Icon(Icons.podcasts,
+                        size: 96, color: Colors.white24)
+                    : CachedNetworkImage(
+                        imageUrl: widget.media.thumbnailUrl!,
+                        fit: BoxFit.contain,
+                        errorWidget: (_, _, _) => const Icon(Icons.podcasts,
+                            size: 96, color: Colors.white24),
+                      )
+              else
+                VideoPlayer(_controller),
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () => setState(() => _controller.value.isPlaying

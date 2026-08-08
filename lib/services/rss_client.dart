@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:xml/xml.dart';
 
 import '../models/feed_item.dart';
@@ -5,7 +7,7 @@ import '../models/network.dart';
 import '../util/text.dart';
 import 'source_client.dart';
 
-/// RSS 2.0 and Atom feeds.
+/// RSS 2.0, Atom and JSON Feed.
 class RssClient extends SourceClient {
   const RssClient(super.source, super.httpClient);
 
@@ -32,7 +34,8 @@ class RssClient extends SourceClient {
     final cached = _validators[source.id];
     final res = await httpClient.get(uri, headers: {
       'User-Agent': 'Omni/1.0 (+feed reader)',
-      'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+      'Accept': 'application/rss+xml, application/atom+xml, application/feed+json, '
+          'application/json, application/xml, text/xml',
       if (cached?.etag != null) 'If-None-Match': cached!.etag!,
       if (cached?.lastModified != null)
         'If-Modified-Since': cached!.lastModified!,
@@ -54,9 +57,18 @@ class RssClient extends SourceClient {
       _validators[source.id] = (etag: etag, lastModified: lastModified);
     }
 
+    // JSON Feed is a third format with the same job; publishers who use it
+    // usually offer nothing else.
+    final body = utf8.decode(res.bodyBytes, allowMalformed: true);
+    if (body.trimLeft().startsWith('{')) {
+      final parsed = _parseJsonFeed(body, limit);
+      if (parsed != null) return _lastItems[source.id] = parsed;
+      throw SourceFetchException(source.displayName, 'not a valid feed');
+    }
+
     final XmlDocument doc;
     try {
-      doc = XmlDocument.parse(res.body);
+      doc = XmlDocument.parse(body);
     } on XmlException {
       throw SourceFetchException(source.displayName, 'not a valid feed');
     }
@@ -77,15 +89,28 @@ class RssClient extends SourceClient {
   List<FeedItem> _parseRss(XmlElement channel, int limit) {
     final feedTitle =
         channel.getElement('title')?.innerText.trim() ?? source.displayName;
+    // Podcast episodes rarely carry their own art; the show's stands in.
+    final channelImage =
+        channel.getElement('itunes:image')?.getAttribute('href') ??
+            channel.getElement('image')?.getElement('url')?.innerText.trim();
 
     return channel.findElements('item').take(limit).map((item) {
       String text(String tag) => item.getElement(tag)?.innerText.trim() ?? '';
 
       final images = <MediaItem>[];
-      final enclosure = item.getElement('enclosure');
-      if ((enclosure?.getAttribute('type') ?? '').startsWith('image')) {
-        final u = enclosure!.getAttribute('url');
-        if (u != null) images.add(MediaItem(url: u));
+      // An enclosure is a picture, a video, or — on a podcast feed — the
+      // episode itself, which was previously thrown away.
+      for (final enclosure in item.findElements('enclosure')) {
+        final attached = _enclosureFrom(
+          url: enclosure.getAttribute('url'),
+          type: enclosure.getAttribute('type'),
+          durationText: item.getElement('itunes:duration')?.innerText,
+          thumbnailUrl: item
+                  .getElement('itunes:image')
+                  ?.getAttribute('href') ??
+              channelImage,
+        );
+        if (attached != null) images.add(attached);
       }
       for (final mc in item.findElements('media:content')) {
         final u = mc.getAttribute('url');
@@ -164,5 +189,100 @@ class RssClient extends SourceClient {
             DateTime.now().toUtc(),
       );
     }).toList(growable: false);
+  }
+
+  /// Turns one enclosure into media, or null when it's something Omni has
+  /// no way to present (a PDF, a torrent).
+  static MediaItem? _enclosureFrom({
+    required String? url,
+    required String? type,
+    String? durationText,
+    String? thumbnailUrl,
+  }) {
+    if (url == null || url.isEmpty) return null;
+    final mime = type ?? '';
+
+    final kind = mime.startsWith('image')
+        ? MediaKind.image
+        : mime.startsWith('video')
+            ? MediaKind.video
+            : mime.startsWith('audio')
+                ? MediaKind.audio
+                : null;
+    if (kind == null) return null;
+
+    return MediaItem(
+      url: url,
+      kind: kind,
+      thumbnailUrl: kind == MediaKind.image ? null : thumbnailUrl,
+      durationSeconds: parseDurationSeconds(durationText),
+    );
+  }
+
+  /// JSON Feed (jsonfeed.org). Returns null when the body is JSON but not a
+  /// feed, so the caller can say so rather than throwing a decode error.
+  List<FeedItem>? _parseJsonFeed(String body, int limit) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+
+    final entries = decoded['items'];
+    if (entries is! List) return null;
+
+    final feedTitle = decoded['title'] as String? ?? source.displayName;
+    final feedIcon = decoded['icon'] as String? ?? decoded['favicon'] as String?;
+
+    return [
+      for (final raw in entries.take(limit).cast<Map<String, dynamic>>())
+        () {
+          final html = raw['content_html'] as String?;
+          final plain = raw['content_text'] as String? ??
+              htmlToPlainText(html ?? '');
+          final summary = raw['summary'] as String? ?? plain;
+          final url = raw['url'] as String? ?? raw['external_url'] as String?;
+
+          final authors = raw['authors'] as List?;
+          final author = (raw['author'] as Map<String, dynamic>?)?['name']
+                  as String? ??
+              (authors == null || authors.isEmpty
+                  ? null
+                  : (authors.first as Map<String, dynamic>)['name'] as String?);
+
+          return FeedItem(
+            id: '${source.id}:${raw['id'] ?? url ?? raw['title']}',
+            sourceId: source.id,
+            network: Network.rss,
+            author: author ?? feedTitle,
+            title: raw['title'] as String?,
+            text: summary.length > 500
+                ? '${summary.substring(0, 500)}…'
+                : summary,
+            fullText: plain.length > summary.length ? plain : null,
+            url: url,
+            media: [
+              if (raw['image'] case final String image) MediaItem(url: image),
+              for (final a in (raw['attachments'] as List? ?? const [])
+                  .cast<Map<String, dynamic>>())
+                if (_enclosureFrom(
+                      url: a['url'] as String?,
+                      type: a['mime_type'] as String?,
+                      thumbnailUrl: raw['image'] as String? ?? feedIcon,
+                    )
+                    case final attached?)
+                  attached,
+            ],
+            context: feedTitle,
+            createdAt: parseRfc822OrIso(
+                    raw['date_published'] as String? ??
+                        raw['date_modified'] as String? ??
+                        '') ??
+                DateTime.now().toUtc(),
+          );
+        }(),
+    ];
   }
 }

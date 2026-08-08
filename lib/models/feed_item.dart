@@ -8,13 +8,19 @@ enum MediaKind {
 
   /// A silent looping clip — Mastodon `gifv`, X `animated_gif`, Reddit's
   /// converted GIFs. Presented as a moving image rather than as a video.
-  gif;
+  gif,
 
-  bool get isVideo => this != MediaKind.image;
+  /// A podcast episode or other audio enclosure. Plays through the same
+  /// machinery, showing cover art where a video would show a picture.
+  audio;
+
+  /// Whether opening this means playing it rather than looking at it.
+  bool get isPlayable => this != MediaKind.image;
 
   static MediaKind fromName(String? name) => switch (name) {
         'video' => MediaKind.video,
         'gif' => MediaKind.gif,
+        'audio' => MediaKind.audio,
         _ => MediaKind.image,
       };
 }
@@ -188,12 +194,11 @@ class FeedItem {
 
   final List<MediaItem> media;
 
-  /// Just the URLs, for the many places that only need those.
   /// What the timeline can show as a still: a video's poster frame stands in
   /// for the video itself.
   List<String> get imageUrls => [for (final m in media) m.previewUrl];
 
-  bool get hasVideo => media.any((m) => m.kind.isVideo);
+  bool get hasPlayableMedia => media.any((m) => m.kind.isPlayable);
 
   /// Who boosted/reposted this into the timeline, if anyone.
   final String? repostedBy;

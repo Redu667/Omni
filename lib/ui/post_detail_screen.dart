@@ -468,7 +468,7 @@ class _PostBodyState extends State<_PostBody> {
                             // width. A video goes straight to the player.
                             onTap: () =>
                                 Navigator.of(context).push(MaterialPageRoute(
-                              builder: (_) => image.kind.isVideo
+                              builder: (_) => image.kind.isPlayable
                                   ? VideoPlayerScreen(media: image)
                                   : ImageViewerScreen(
                                       media: item.media,
@@ -496,7 +496,7 @@ class _PostBodyState extends State<_PostBody> {
                                           const SizedBox.shrink(),
                                     ),
                                   ),
-                                  if (image.kind.isVideo)
+                                  if (image.kind.isPlayable)
                                     const CircleAvatar(
                                       radius: 28,
                                       backgroundColor: Colors.black54,
