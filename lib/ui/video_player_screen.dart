@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/feed_item.dart';
+import 'media_actions.dart';
 
 /// Plays a video, GIF or audio enclosure attached to a post.
 ///
@@ -62,6 +63,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          SaveMediaButton(media: widget.media),
           IconButton(
             icon: const Icon(Icons.open_in_browser),
             tooltip: 'Open in browser',
