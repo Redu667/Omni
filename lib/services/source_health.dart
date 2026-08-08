@@ -32,13 +32,6 @@ class SourceHealth {
   Duration? stalenessAt(DateTime now) =>
       lastSuccess == null ? null : now.difference(lastSuccess!);
 
-  /// How long to leave a failing source alone before asking again.
-  ///
-  /// A source that answers 403 answers 403 to the next request too, and
-  /// asking every thirty seconds is how a temporary block becomes a
-  /// lasting one. The first couple of failures are treated as blips and
-  /// retried immediately; after that it backs off, capped so a source is
-  /// never abandoned outright.
   /// Indexed by [consecutiveFailures], so entry 0 is never used and the
   /// first two failures cost nothing.
   static const _backoff = [
@@ -51,6 +44,13 @@ class SourceHealth {
     Duration(minutes: 30),
   ];
 
+  /// How long to leave a failing source alone before asking again.
+  ///
+  /// A source that answers 403 answers 403 to the next request too, and
+  /// asking every thirty seconds is how a temporary block becomes a lasting
+  /// one. The first couple of failures are treated as blips and retried
+  /// immediately; after that it backs off, capped by the last entry above so
+  /// a source is never abandoned outright.
   Duration get retryDelay => consecutiveFailures <= 0
       ? Duration.zero
       : _backoff[consecutiveFailures.clamp(0, _backoff.length - 1)];
