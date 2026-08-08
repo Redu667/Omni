@@ -22,6 +22,11 @@ class MastodonClient extends SourceClient {
     final local = source.params['local'] == 'true';
     final hashtag = source.params['hashtag']?.replaceFirst(RegExp(r'^#'), '');
     final list = source.params['list'];
+    // Your own bookmarks or favourites, which are not timelines and page
+    // by their own ids rather than by status id.
+    final collection = _collections.contains(source.params['collection'])
+        ? source.params['collection']
+        : null;
 
     // Mastodon pages by asking for statuses older than an id.
     final query = {
@@ -35,7 +40,14 @@ class MastodonClient extends SourceClient {
       headers['Authorization'] = 'Bearer $token';
     }
 
-    if (hashtag != null && hashtag.isNotEmpty) {
+    if (collection != null) {
+      if (headers.isEmpty) {
+        throw SourceFetchException(source.displayName,
+            'your $collection are private — sign in to this instance to '
+            'read them');
+      }
+      uri = Uri.https(instance, '/api/v1/$collection', query);
+    } else if (hashtag != null && hashtag.isNotEmpty) {
       // Tag timelines are public, so this works signed in or not.
       uri = Uri.https(instance, '/api/v1/timelines/tag/$hashtag',
           {...query, if (local) 'local': 'true'});
@@ -63,6 +75,16 @@ class MastodonClient extends SourceClient {
         .map((s) => _toItem(s as Map<String, dynamic>))
         .toList(growable: false);
 
+    // Bookmarks and favourites are keyed by their own internal ids, which
+    // only appear in the Link header — paging them by status id silently
+    // returns the same page forever.
+    if (collection != null) {
+      return SourcePage(
+        items: items,
+        nextCursor: nextMaxId(res.headers['link']),
+      );
+    }
+
     // A short page means the end; otherwise page from the oldest id here.
     final oldestId = statuses.isEmpty
         ? null
@@ -71,6 +93,25 @@ class MastodonClient extends SourceClient {
       items: items,
       nextCursor: statuses.length < limit ? null : oldestId,
     );
+  }
+
+  static const _collections = {'bookmarks', 'favourites'};
+
+  /// Pulls `max_id` out of a `Link: <...>; rel="next"` header.
+  ///
+  /// Returns null when there is no next page, which is how those endpoints
+  /// say "that's all of them".
+  static String? nextMaxId(String? linkHeader) {
+    if (linkHeader == null) return null;
+    for (final part in linkHeader.split(',')) {
+      if (!part.contains('rel="next"')) continue;
+      final start = part.indexOf('<');
+      final end = part.indexOf('>');
+      if (start < 0 || end <= start) continue;
+      return Uri.tryParse(part.substring(start + 1, end))
+          ?.queryParameters['max_id'];
+    }
+    return null;
   }
 
   /// A hashtag or list that doesn't exist 404s exactly like a wrong

@@ -130,6 +130,10 @@ class _SourceFormState extends State<_SourceForm> {
   Map<String, String> _lists = const {};
   String? _selectedList;
 
+  /// 'bookmarks' or 'favourites', when following one of those instead of a
+  /// timeline. Only offered once signed in, because they're private.
+  String? _mastodonCollection;
+
   Future<Map<String, String>> _fetchLists(String instance, String token) =>
       MastodonClient(
         FeedSource(
@@ -267,6 +271,8 @@ class _SourceFormState extends State<_SourceForm> {
         Network.mastodon => switch (params) {
             {'hashtag': final String tag} =>
               '#${tag.replaceFirst(RegExp(r'^#'), '')}',
+            {'collection': 'bookmarks'} => 'My bookmarks',
+            {'collection': 'favourites'} => 'My favourites',
             {'list': final String id} => _lists[id] ?? 'Mastodon list',
             {'accessToken': final String _} => _oauthAccount != null
                 ? '@$_oauthAccount'
@@ -310,6 +316,9 @@ class _SourceFormState extends State<_SourceForm> {
     if (widget.network == Network.mastodon) {
       params['instance'] = MastodonOAuth.normalizeInstance(params['instance']!);
       if (_selectedList != null) params['list'] = _selectedList!;
+      if (_mastodonCollection != null) {
+        params['collection'] = _mastodonCollection!;
+      }
     }
     if (widget.network == Network.twitter) {
       params['mode'] = _twitterOfficial ? 'official' : 'guest';
@@ -411,24 +420,33 @@ class _SourceFormState extends State<_SourceForm> {
                     ?.copyWith(color: theme.colorScheme.outline),
               ),
             ),
-            if (_lists.isNotEmpty)
+            if (_oauthAccount != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 20),
                 child: DropdownButtonFormField<String>(
-                  value: _selectedList,
+                  value: _selectedList ?? _mastodonCollection,
                   decoration: const InputDecoration(
-                    labelText: 'List',
-                    helperText: 'Leave unset for your home timeline',
+                    labelText: 'Follow',
                     border: OutlineInputBorder(),
                   ),
                   items: [
                     const DropdownMenuItem(
                         value: null, child: Text('Home timeline')),
+                    const DropdownMenuItem(
+                        value: 'bookmarks', child: Text('My bookmarks')),
+                    const DropdownMenuItem(
+                        value: 'favourites', child: Text('My favourites')),
                     for (final entry in _lists.entries)
                       DropdownMenuItem(
-                          value: entry.key, child: Text(entry.value)),
+                          value: entry.key, child: Text('List · ${entry.value}')),
                   ],
-                  onChanged: (v) => setState(() => _selectedList = v),
+                  onChanged: (v) => setState(() {
+                    // One control, because these are alternatives — picking
+                    // a list and "my bookmarks" at once means nothing.
+                    final isCollection = v == 'bookmarks' || v == 'favourites';
+                    _mastodonCollection = isCollection ? v : null;
+                    _selectedList = isCollection ? null : v;
+                  }),
                 ),
               ),
           ],

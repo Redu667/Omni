@@ -37,6 +37,7 @@ final _status = {
 }
 
 void main() {
+  _collectionTests();
   group('which timeline', () {
     test('a hashtag uses the tag timeline, with or without a token', () async {
       for (final token in [null, 'tok']) {
@@ -182,6 +183,87 @@ void main() {
           await MastodonClient(masto({'accessToken': 'tok'}), r.client)
               .fetchLists(),
           isEmpty);
+    });
+  });
+}
+
+/// Bookmarks and favourites: private, and paged differently from timelines.
+void _collectionTests() {
+  ({List<Uri> seen, http.Client client}) linkRecorder(String? link) {
+    final seen = <Uri>[];
+    final client = MockClient((req) async {
+      seen.add(req.url);
+      return http.Response.bytes(
+        utf8.encode(jsonEncode([_status])),
+        200,
+        headers: {if (link != null) 'link': link},
+      );
+    });
+    return (seen: seen, client: client);
+  }
+
+  group('bookmarks and favourites', () {
+    test('each uses its own endpoint', () async {
+      for (final name in ['bookmarks', 'favourites']) {
+        final r = linkRecorder(null);
+        await SourceClient.forSource(
+                masto({'collection': name, 'accessToken': 'tok'}), r.client)
+            .fetchLatest();
+        expect(r.seen.single.path, '/api/v1/$name');
+      }
+    });
+
+    test('without a token, says they are private', () async {
+      final r = linkRecorder(null);
+      await expectLater(
+        SourceClient.forSource(masto({'collection': 'bookmarks'}), r.client)
+            .fetchLatest(),
+        throwsA(isA<SourceFetchException>()
+            .having((e) => e.toString(), 'message', contains('private'))),
+      );
+      expect(r.seen, isEmpty);
+    });
+
+    test('pages from the Link header, not the status id', () async {
+      final r = linkRecorder(
+          '<https://mastodon.social/api/v1/bookmarks?max_id=99>; rel="next", '
+          '<https://mastodon.social/api/v1/bookmarks?min_id=1>; rel="prev"');
+
+      final page = await SourceClient.forSource(
+              masto({'collection': 'bookmarks', 'accessToken': 'tok'}),
+              r.client)
+          .fetchPage();
+
+      // '1' is the status id; '99' is the bookmark id paging actually needs.
+      expect(page.nextCursor, '99');
+    });
+
+    test('no next link means there is no more', () async {
+      final r = linkRecorder(
+          '<https://mastodon.social/api/v1/bookmarks?min_id=1>; rel="prev"');
+      final page = await SourceClient.forSource(
+              masto({'collection': 'bookmarks', 'accessToken': 'tok'}),
+              r.client)
+          .fetchPage();
+
+      expect(page.nextCursor, isNull);
+      expect(page.hasMore, isFalse);
+    });
+
+    test('an unknown collection falls through to the home timeline', () async {
+      final r = linkRecorder(null);
+      await SourceClient.forSource(
+              masto({'collection': 'nonsense', 'accessToken': 'tok'}), r.client)
+          .fetchLatest();
+
+      expect(r.seen.single.path, '/api/v1/timelines/home');
+    });
+
+    test('a malformed Link header is ignored rather than fatal', () {
+      expect(MastodonClient.nextMaxId(null), isNull);
+      expect(MastodonClient.nextMaxId('garbage'), isNull);
+      expect(MastodonClient.nextMaxId('<no-brackets; rel="next"'), isNull);
+      expect(MastodonClient.nextMaxId('<https://x/a>; rel="next"'), isNull);
     });
   });
 }
