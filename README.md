@@ -21,6 +21,11 @@ Moshidon, but spanning multiple networks.
   Bluesky threads). The original page is one tap away, in Omni's browser or
   yours, but you never have to go there to read.
 - **Per-network filtering** — chips to show only Mastodon, only Reddit, etc.
+- **Mute filters** — hide posts by word, phrase or account across every
+  source. Single words match on word boundaries (muting "art" won't hide
+  "start"); accounts match however you type them, `@name`, `u/name` or bare.
+  The timeline says how many posts are being hidden so nothing vanishes
+  silently.
 - **Multiple sources per network** — several subreddits, several feeds,
   several accounts; toggle each on/off or remove it.
 - **Graceful partial failure** — if one source is down you still get the rest,
@@ -35,7 +40,7 @@ Moshidon, but spanning multiple networks.
 |---|---|---|
 | Mastodon | Home timeline, or any instance's public/local timeline | In-app OAuth sign-in (or none for public timelines) |
 | Bluesky | Your home timeline, or any user's public feed | Optional app password (Settings → App Passwords) |
-| Reddit | Any subreddit (`flutter` or `flutter+androiddev`) | None — falls back to Reddit's Atom feeds when the JSON API is blocked |
+| Reddit | Any subreddit (`flutter` or `flutter+androiddev`) | None — falls back to Reddit's Atom feeds when the JSON API is blocked, which it often is |
 | Twitter/X | Public posts from chosen usernames | **Sign in** (recommended), anonymous, or the official API v2 with your own bearer token |
 | RSS / Atom | Any feed URL | None |
 

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/feed_item.dart';
+import '../models/feed_filters.dart';
 import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_repository.dart';
@@ -53,6 +54,58 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  FeedFilters _filters = FeedFilters.empty;
+
+  /// Words and accounts hidden from the timeline.
+  FeedFilters get filters => _filters;
+
+  /// How many fetched posts the filters are currently hiding, so the UI can
+  /// say so rather than leaving the user wondering where posts went.
+  int get hiddenCount {
+    if (_filters.isEmpty) return 0;
+    final visible = _filter == null
+        ? _items
+        : _items.where((i) => i.network == _filter);
+    return visible.where(_filters.hides).length;
+  }
+
+  Future<void> updateFilters(FeedFilters filters) async {
+    _filters = filters;
+    await _settingsStore.saveFilters(filters);
+    notifyListeners();
+  }
+
+  Future<void> muteWord(String word) async {
+    final trimmed = word.trim();
+    if (trimmed.isEmpty ||
+        _filters.mutedWords.any((w) => w.toLowerCase() == trimmed.toLowerCase())) {
+      return;
+    }
+    await updateFilters(
+        _filters.copyWith(mutedWords: [..._filters.mutedWords, trimmed]));
+  }
+
+  Future<void> unmuteWord(String word) async => updateFilters(_filters.copyWith(
+      mutedWords: _filters.mutedWords.where((w) => w != word).toList()));
+
+  Future<void> muteAccount(String account) async {
+    final trimmed = account.trim();
+    if (trimmed.isEmpty) return;
+    final normalized = FeedFilters.normalizeAccount(trimmed);
+    if (normalized.isEmpty ||
+        _filters.mutedAccounts
+            .any((a) => FeedFilters.normalizeAccount(a) == normalized)) {
+      return;
+    }
+    await updateFilters(_filters
+        .copyWith(mutedAccounts: [..._filters.mutedAccounts, trimmed]));
+  }
+
+  Future<void> unmuteAccount(String account) async =>
+      updateFilters(_filters.copyWith(
+          mutedAccounts:
+              _filters.mutedAccounts.where((a) => a != account).toList()));
+
   bool _openInApp = true;
 
   /// Whether tapping a post opens Omni's built-in viewer or the browser.
@@ -82,9 +135,8 @@ class AppState extends ChangeNotifier {
   bool get initialized => _initialized;
   Network? get filter => _filter;
 
-  List<FeedItem> get items => _filter == null
-      ? List.unmodifiable(_items)
-      : List.unmodifiable(_items.where((i) => i.network == _filter));
+  List<FeedItem> get items => List.unmodifiable(_items.where((i) =>
+      (_filter == null || i.network == _filter) && !_filters.hides(i)));
 
   /// Networks that currently have at least one configured source.
   Set<Network> get activeNetworks => _sources.map((s) => s.network).toSet();
@@ -93,6 +145,7 @@ class AppState extends ChangeNotifier {
     _sources = await _store.load();
     _twitterConfig = await _twitterConfigStore.load();
     _openInApp = await _settingsStore.loadOpenInApp();
+    _filters = await _settingsStore.loadFilters();
     _twitterAccount = await _twitterSessionStore.load();
     _initialized = true;
     notifyListeners();

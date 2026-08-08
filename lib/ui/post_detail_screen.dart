@@ -56,6 +56,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  Future<void> _muteAuthor() async {
+    final item = widget.item;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    await context.read<AppState>().muteAccount(item.handle ?? item.author);
+    messenger.showSnackBar(SnackBar(
+        content: Text('Muted ${item.handle ?? item.author}')));
+    navigator.pop();
+  }
+
   Future<void> _openOriginal({required bool external}) async {
     final url = widget.item.url;
     if (url == null) return;
@@ -89,14 +99,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Link copied')));
                   }),
+                'mute' => _muteAuthor(),
                 _ => null,
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
+              itemBuilder: (_) => [
+                const PopupMenuItem(
                     value: 'in_app', child: Text('Open original in Omni')),
-                PopupMenuItem(
+                const PopupMenuItem(
                     value: 'browser', child: Text('Open in browser')),
-                PopupMenuItem(value: 'copy', child: Text('Copy link')),
+                const PopupMenuItem(value: 'copy', child: Text('Copy link')),
+                PopupMenuItem(
+                    value: 'mute',
+                    child: Text('Mute ${item.handle ?? item.author}')),
               ],
             ),
         ],
