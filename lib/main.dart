@@ -1,11 +1,20 @@
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:workmanager/workmanager.dart';
 
+import 'services/background_refresh.dart';
 import 'state/app_state.dart';
 import 'ui/home_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Registers the entry point Android calls when it runs the periodic
+  // task. Whether that task is scheduled at all is a setting; this only
+  // makes the callback reachable.
+  Workmanager().initialize(backgroundCallbackDispatcher);
+
   runApp(const OmniApp());
 }
 

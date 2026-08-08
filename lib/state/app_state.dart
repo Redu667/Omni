@@ -7,6 +7,8 @@ import '../models/feed_source.dart';
 import '../models/network.dart';
 import '../services/feed_cache.dart';
 import '../services/article_fetcher.dart';
+import '../services/background_refresh.dart';
+import '../services/notifications.dart';
 import '../services/feed_repository.dart';
 import '../services/reddit_auth.dart';
 import '../services/saved_store.dart';
@@ -414,6 +416,7 @@ class AppState extends ChangeNotifier {
     _readIds = await _settingsStore.loadReadIds();
     _hideRead = await _settingsStore.loadHideRead();
     _markReadOnScroll = await _settingsStore.loadMarkReadOnScroll();
+    _backgroundMinutes = await _settingsStore.loadBackgroundMinutes();
     _collections = await _settingsStore.loadCollections();
 
     // Show the cached timeline immediately; the network refresh follows.
@@ -591,6 +594,51 @@ class AppState extends ChangeNotifier {
     await _store.save(_sources);
     notifyListeners();
     await refresh();
+  }
+
+  /// Whether this source is allowed to raise a notification for new posts.
+  Future<void> setSourceNotify(String id, bool notify) async {
+    final source = _sources.firstWhere((s) => s.id == id);
+    source.notify = notify;
+    await _store.save(_sources);
+    notifyListeners();
+  }
+
+  /// Sources that would notify, which is what decides whether background
+  /// refresh has anything to do.
+  bool get anySourceNotifies => _sources.any((s) => s.enabled && s.notify);
+
+  final _background = const BackgroundRefresh();
+  final _notifications = Notifications();
+
+  int? _backgroundMinutes;
+
+  /// How often Omni fetches while closed, in minutes. Null means never.
+  int? get backgroundMinutes => _backgroundMinutes;
+
+  /// The intervals offered. Android refuses anything under fifteen minutes,
+  /// and treats what it is given as a request rather than a promise.
+  static const backgroundIntervals = <int, String>{
+    15: 'Every 15 minutes',
+    30: 'Every 30 minutes',
+    60: 'Hourly',
+    180: 'Every 3 hours',
+    360: 'Every 6 hours',
+  };
+
+  Future<bool> requestNotificationPermission() =>
+      _notifications.requestPermission();
+
+  Future<void> setBackgroundMinutes(int? minutes) async {
+    _backgroundMinutes = minutes;
+    await _settingsStore.saveBackgroundMinutes(minutes);
+    notifyListeners();
+
+    if (minutes == null) {
+      await _background.disable();
+    } else {
+      await _background.enable(Duration(minutes: minutes));
+    }
   }
 
   void setFilter(Network? network) {

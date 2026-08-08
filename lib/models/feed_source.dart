@@ -15,6 +15,7 @@ class FeedSource {
     required this.displayName,
     required this.params,
     this.enabled = true,
+    this.notify = false,
   });
 
   final String id;
@@ -23,12 +24,20 @@ class FeedSource {
   final Map<String, String> params;
   bool enabled;
 
+  /// Whether new posts from this source raise a notification.
+  ///
+  /// Off by default and opted into per source: a notification for every
+  /// post from a busy subreddit is how someone turns notifications off
+  /// entirely and stops hearing about the feed they did care about.
+  bool notify;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'network': network.name,
         'displayName': displayName,
         'params': params,
         'enabled': enabled,
+        if (notify) 'notify': notify,
       };
 
   factory FeedSource.fromJson(Map<String, dynamic> json) => FeedSource(
@@ -37,5 +46,6 @@ class FeedSource {
         displayName: json['displayName'] as String,
         params: (json['params'] as Map).cast<String, String>(),
         enabled: json['enabled'] as bool? ?? true,
+        notify: json['notify'] as bool? ?? false,
       );
 }

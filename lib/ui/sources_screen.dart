@@ -46,12 +46,28 @@ class SourcesScreen extends StatelessWidget {
                           color: source.network.color),
                     ),
                     title: Text(source.displayName),
-                    subtitle: Text(source.network == Network.reddit
-                        ? 'Reddit · sorted by ${source.params['sort'] ?? 'hot'}'
-                        : source.network.label),
+                    subtitle: Text([
+                      source.network == Network.reddit
+                          ? 'Reddit · sorted by ${source.params['sort'] ?? 'hot'}'
+                          : source.network.label,
+                      if (source.notify) 'notifies',
+                    ].join(' · ')),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        IconButton(
+                          icon: Icon(source.notify
+                              ? Icons.notifications_active
+                              : Icons.notifications_none),
+                          tooltip: source.notify
+                              ? 'Stop notifying about this source'
+                              : 'Notify about new posts here',
+                          // Per source, because one busy subreddit notifying
+                          // is how someone turns notifications off entirely
+                          // and stops hearing about the feed they cared about.
+                          onPressed: () =>
+                              state.setSourceNotify(source.id, !source.notify),
+                        ),
                         IconButton(
                           icon: Icon(
                             state.collectionsFor(source.id).isEmpty

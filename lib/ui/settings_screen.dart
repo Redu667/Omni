@@ -205,6 +205,9 @@ class SettingsScreen extends StatelessWidget {
             onChanged: state.setOpenInApp,
           ),
 
+          _SectionHeader('Notifications'),
+          _BackgroundRefreshTile(state: state),
+
           _SectionHeader('Accounts'),
           ListTile(
             leading: const Icon(Icons.reddit),
@@ -295,6 +298,97 @@ class _SectionHeader extends StatelessWidget {
           letterSpacing: 0.8,
         ),
       ),
+    );
+  }
+}
+
+/// Chooses how often Omni fetches while closed, and gets permission the
+/// first time it's switched on.
+class _BackgroundRefreshTile extends StatelessWidget {
+  const _BackgroundRefreshTile({required this.state});
+
+  final AppState state;
+
+  Future<void> _choose(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    final chosen = await showModalBottomSheet<int?>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RadioListTile<int?>(
+              value: null,
+              groupValue: state.backgroundMinutes,
+              title: const Text('Never'),
+              subtitle: const Text('Omni only fetches while open'),
+              onChanged: (_) => Navigator.of(sheetContext).pop(-1),
+            ),
+            for (final entry in AppState.backgroundIntervals.entries)
+              RadioListTile<int?>(
+                value: entry.key,
+                groupValue: state.backgroundMinutes,
+                title: Text(entry.value),
+                onChanged: (v) => Navigator.of(sheetContext).pop(v),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null) return;
+
+    // -1 stands for "Never", because null already means "dismissed".
+    final minutes = chosen == -1 ? null : chosen;
+
+    if (minutes != null && !await state.requestNotificationPermission()) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text(
+            'Without notification permission Omni can still fetch in the '
+            'background, but it can only tell you when you open it.'),
+        duration: Duration(seconds: 6),
+      ));
+    }
+    await state.setBackgroundMinutes(minutes);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final minutes = state.backgroundMinutes;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.sync),
+          title: const Text('Fetch in the background'),
+          subtitle: Text(minutes == null
+              ? 'Never'
+              : AppState.backgroundIntervals[minutes] ?? 'Every $minutes minutes'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _choose(context),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            minutes == null
+                ? 'Turn this on to be told about new posts. You choose which '
+                    'sources are worth interrupting you for, in Manage '
+                    'sources.'
+                : state.anySourceNotifies
+                    ? 'Android treats this as a request rather than a '
+                        'promise, and may run it less often to save battery.'
+                    : 'No source is set to notify yet, so this will fetch '
+                        'quietly and tell you nothing. Pick the ones worth '
+                        'interrupting you for in Manage sources.',
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.outline),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -34,7 +34,7 @@ whether Omni is usable as a daily reader at all.
 | **Offline cache** | ✓ | The timeline is kept on disk and shown instantly at launch, with a banner while it's stale. A refresh that fails everywhere keeps the cache rather than blanking the feed. |
 | **Read / unread state** | ✓ | Opening a post marks it read; scrolling one off the top of the screen does too, behind a setting. Read posts dim, or hide entirely by choice, and there's mark-all-read. Posts marked by scrolling stay in place until the next refresh, so the list never shifts under a moving thumb. |
 | **Save / bookmark posts** | ✓ | Long-press to save. The whole post is stored, so it survives its source being removed or the original being deleted. |
-| **Background refresh & notifications** | ✗ | Omni only fetches while open and in the foreground. |
+| **Background refresh & notifications** | ✓ | A periodic fetch while Omni is closed, off by default, with the interval chosen in Settings. Notifications are opted into per source, one per source rather than per post, and the first run for a source stays quiet so switching it on doesn't announce a backlog. Android treats the interval as a request, which the setting says. |
 | **Search** | ✓ | Searches everything loaded — titles, bodies, authors, flair, alt text, quoted posts and link cards — ignoring the active collection and network chip; press enter to ask Mastodon, Bluesky and Reddit for posts you haven't loaded. RSS has no search API and X's would be another rotating query ID, so neither is offered. |
 | **Image viewer** | ✓ | Tap any image for full screen: pinch-zoom, pan, swipe between a gallery, alt text under the picture, and save to the device gallery — video too, where the network serves a file rather than a stream. |
 | **Video** | ✓ | Plays in-app on all four networks that have it — Mastodon video and `gifv`, Bluesky's HLS embeds, Reddit `v.redd.it`, and X video and animated GIFs. Timeline shows the poster frame with a play badge and the running time; GIFs loop silently, everything else plays once with sound. |
@@ -167,7 +167,6 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 
 Ordered by value-per-effort rather than by how impressive they sound.
 
-1. **Background refresh & notifications** — the last thing keeping Omni foreground-only.
-2. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Needs a decision about which copy to keep: the subreddit has the discussion, the feed has the full text.
-3. **Saving streamed video** — HLS and DASH are manifests, not files; keeping one means muxing the segments, which is a lot of machinery for a rare want.
+1. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Deliberately not done: it needs a decision about which copy to keep, and it doesn't happen often enough to be worth getting wrong.
+2. **Saving streamed video** — HLS and DASH are manifests, not files; keeping one means muxing the segments, which is a lot of machinery for a rare want.
 4. **Per-source refresh interval** — everything refreshes together, on demand only. Only worth having alongside background refresh, and probably not even then.

@@ -15,6 +15,9 @@ class SettingsStore {
   static const _readKey = 'omni_read_ids';
   static const _hideReadKey = 'omni_hide_read';
   static const _markReadOnScrollKey = 'omni_mark_read_on_scroll';
+  static const _seenKey = 'omni_seen_ids';
+  static const _establishedKey = 'omni_established_sources';
+  static const _backgroundIntervalKey = 'omni_background_minutes';
   static const _collectionsKey = 'omni_collections_v1';
 
   Future<List<Collection>> loadCollections() async {
@@ -60,6 +63,55 @@ class SettingsStore {
   Future<void> saveHideRead(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_hideReadKey, value);
+  }
+
+  /// Ids the background refresh has already accounted for, so a post is
+  /// announced once rather than on every run. Capped like the read ids —
+  /// an id stops mattering once it leaves the feed.
+  Future<Set<String>> loadSeenIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_seenKey) ?? const []).toSet();
+  }
+
+  Future<void> saveSeenIds(Set<String> ids, {int cap = 2000}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = ids.toList();
+    await prefs.setStringList(
+        _seenKey, list.length <= cap ? list : list.sublist(list.length - cap));
+  }
+
+  /// Sources the background refresh has fetched at least once.
+  ///
+  /// Without this, switching notifications on for a busy subreddit would
+  /// announce its entire backlog. The first run establishes a baseline and
+  /// says nothing.
+  Future<Set<String>> loadEstablishedSourceIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_establishedKey) ?? const []).toSet();
+  }
+
+  Future<void> saveEstablishedSourceIds(Set<String> ids) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_establishedKey, ids.toList());
+  }
+
+  /// How often to fetch in the background, in minutes. Null means never.
+  ///
+  /// Android refuses anything under fifteen minutes and treats the value as
+  /// a request rather than a promise.
+  Future<int?> loadBackgroundMinutes() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getInt(_backgroundIntervalKey);
+    return value == null || value <= 0 ? null : value;
+  }
+
+  Future<void> saveBackgroundMinutes(int? minutes) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (minutes == null) {
+      await prefs.remove(_backgroundIntervalKey);
+    } else {
+      await prefs.setInt(_backgroundIntervalKey, minutes);
+    }
   }
 
   /// Off by default: silently marking things read is the kind of behaviour

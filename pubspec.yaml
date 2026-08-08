@@ -31,6 +31,8 @@ dependencies:
   video_player: ^2.9.2
   html: ^0.15.4
   gal: ^2.3.0
+  workmanager: 0.5.2
+  flutter_local_notifications: ^20.1.0
 
 dev_dependencies:
   flutter_test:
