@@ -34,6 +34,27 @@ String listingJson() => jsonEncode({
 Future<List<dynamic>> fetch(MockClient client, [FeedSource? source]) =>
     SourceClient.forSource(source ?? redditSource(), client).fetchLatest();
 
+String atomFeed() => '''
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>law</title>
+  <entry>
+    <author><name>/u/lawyer</name></author>
+    <id>t3_abc</id>
+    <link href="https://www.reddit.com/r/law/comments/abc/a_case/" />
+    <title>A case worth reading</title>
+    <updated>2026-08-06T12:00:00+00:00</updated>
+    <content type="html">&lt;img src="https://preview.redd.it/x.png"&gt;</content>
+  </entry>
+</feed>''';
+
+/// Reddit's block page: HTTP 200, HTML body, no hint in the status code.
+http.Response blockPage() => http.Response(
+    '<!doctype html>\n<html><head><title>Blocked</title></head>'
+    '<body>whoa there, pardner</body></html>',
+    200,
+    headers: {'content-type': 'text/html; charset=utf-8'});
+
 void main() {
   test('presents as a browser, since Reddit blocks clients that do not',
       () async {
@@ -118,6 +139,74 @@ void main() {
       throwsA(predicate((e) =>
           e is SourceFetchException &&
           e.message.contains('rate limiting'))),
+    );
+  });
+
+  test('treats a 200 HTML block page as blocked, not as content', () async {
+    // Reddit answers 200 with HTML rather than 403; decoding that as JSON
+    // used to throw a raw FormatException at the user.
+    final hosts = <String>[];
+    final client = MockClient((req) async {
+      hosts.add(req.url.host);
+      if (req.url.path.endsWith('.rss')) return http.Response(atomFeed(), 200);
+      return blockPage();
+    });
+
+    final items = await fetch(client, redditSource('law'));
+
+    expect(hosts, ['www.reddit.com', 'old.reddit.com', 'www.reddit.com']);
+    expect(items, hasLength(1));
+    expect(items.single.title, 'A case worth reading');
+    expect(items.single.author, 'u/lawyer');
+    expect(items.single.context, 'r/law');
+    expect(items.single.url,
+        'https://www.reddit.com/r/law/comments/abc/a_case/');
+    expect(items.single.imageUrls, ['https://preview.redd.it/x.png']);
+  });
+
+  test('treats Reddit\'s error JSON as blocked too', () async {
+    final client = MockClient((req) async {
+      if (req.url.path.endsWith('.rss')) return http.Response(atomFeed(), 200);
+      return http.Response('{"message": "Forbidden", "error": 403}', 200);
+    });
+
+    expect(await fetch(client, redditSource('law')), hasLength(1));
+  });
+
+  test('falls back to the feed after a real 403 as well', () async {
+    final client = MockClient((req) async {
+      if (req.url.path.endsWith('.rss')) return http.Response(atomFeed(), 200);
+      return http.Response('blocked', 403);
+    });
+
+    expect(await fetch(client, redditSource('law')), hasLength(1));
+  });
+
+  test('never lets a decode error escape when every route is blocked',
+      () async {
+    final client = MockClient((_) async => blockPage());
+
+    expect(
+      fetch(client, redditSource('law')),
+      throwsA(isA<SourceFetchException>()),
+    );
+  });
+
+  test('an entry-less feed counts as failure, not an empty subreddit',
+      () async {
+    final client = MockClient((req) async {
+      if (req.url.path.endsWith('.rss')) {
+        return http.Response(
+            '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+            '<title>blocked</title></feed>',
+            200);
+      }
+      return blockPage();
+    });
+
+    expect(
+      fetch(client, redditSource('law')),
+      throwsA(isA<SourceFetchException>()),
     );
   });
 }

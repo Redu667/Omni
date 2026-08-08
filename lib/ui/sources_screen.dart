@@ -9,6 +9,7 @@ import '../models/network.dart';
 import '../services/feed_discovery.dart';
 import '../state/app_state.dart';
 import 'add_source_screen.dart';
+import 'filters_screen.dart';
 import 'starter_picks_screen.dart';
 import 'twitter_settings_screen.dart';
 
@@ -103,6 +104,18 @@ class SourcesScreen extends StatelessWidget {
                 'original" goes — Omni\'s built-in browser, or yours.'),
             value: state.openInApp,
             onChanged: state.setOpenInApp,
+          ),
+          ListTile(
+            leading: const Icon(Icons.filter_alt_outlined),
+            title: const Text('Filters'),
+            subtitle: Text(state.filters.isEmpty
+                ? 'Hide posts by word or account'
+                : '${state.filters.mutedWords.length} words, '
+                    '${state.filters.mutedAccounts.length} accounts muted'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const FiltersScreen()),
+            ),
           ),
           const Divider(height: 1),
           if (state.sources.isEmpty)

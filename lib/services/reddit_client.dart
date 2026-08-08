@@ -32,31 +32,48 @@ class RedditClient extends SourceClient {
     final subreddit = source.params['subreddit']!.replaceAll(RegExp(r'^/?r/'), '');
     final sort = source.params['sort'] ?? 'hot';
 
-    http.Response? lastResponse;
+    // Why we gave up, kept so the final message says "rate limited" rather
+    // than "private or quarantined" when those are very different problems.
+    int? blockedAs;
+    int? lastStatus;
+
     for (final host in _hosts) {
       final res = await httpClient.get(
         Uri.https(host, '/r/$subreddit/$sort.json',
             {'limit': '$limit', 'raw_json': '1'}),
         headers: _headers,
       );
-      if (res.statusCode == 200) return _parse(res);
-      lastResponse = res;
-      // Only a block is worth retrying elsewhere; a 404 means the same
-      // thing on every host.
-      if (res.statusCode != 403 && res.statusCode != 429) break;
-    }
+      lastStatus = res.statusCode;
 
-    // Reddit now blocks the JSON listings for anything that isn't a real
-    // browser session, including on plainly public subreddits. The Atom
-    // feeds are still served openly, so fall back to those rather than
-    // failing — fewer fields, but a working feed.
-    if (lastResponse!.statusCode == 403 || lastResponse.statusCode == 429) {
+      if (res.statusCode == 200) {
+        final parsed = _tryParse(res);
+        if (parsed != null) return parsed;
+        // Reddit serves its block and challenge pages as HTML with a 200,
+        // so a body that isn't a listing means blocked, not empty.
+        blockedAs = 403;
+        continue;
+      }
+
+      if (res.statusCode == 403 || res.statusCode == 429) {
+        blockedAs = res.statusCode;
+        continue;
+      }
+      // Anything else means the same thing on every host — stop asking.
+      break;
+    }
+    final blocked = blockedAs != null;
+
+    // Reddit blocks the JSON listings for anything that isn't a real browser
+    // session, including on plainly public subreddits. The Atom feeds are
+    // still served openly, so fall back to those rather than failing —
+    // fewer fields, but a working feed.
+    if (blocked) {
       final viaRss = await _fetchViaRss(subreddit, sort, limit);
       if (viaRss != null) return viaRss;
     }
 
     throw SourceFetchException(
-        source.displayName, _explain(lastResponse.statusCode, subreddit));
+        source.displayName, _explain(blockedAs ?? lastStatus ?? 0, subreddit));
   }
 
   /// Reddit uses the same status code for several very different problems,
@@ -68,7 +85,9 @@ class RedditClient extends SourceClient {
               'banned — otherwise Reddit is blocking anonymous access from your '
               'network right now.',
         404 => 'No subreddit called r/$subreddit.',
-        429 => 'Reddit is rate limiting right now — try again in a minute.',
+        429 =>
+          'Reddit is rate limiting right now, and its feed did not answer '
+              'either — try again in a minute.',
         _ => 'HTTP $status from Reddit.',
       };
 
@@ -92,7 +111,11 @@ class RedditClient extends SourceClient {
       return null;
     }
 
+    // A block page can still parse as XML, so an absence of entries means
+    // this route failed too rather than "the subreddit is empty".
     final entries = doc.findAllElements('entry').take(limit);
+    if (entries.isEmpty) return null;
+
     return [
       for (final entry in entries)
         () {
@@ -148,9 +171,16 @@ class RedditClient extends SourceClient {
       );
       if (res.statusCode != 200) continue;
 
-      // The response is [post listing, comment listing].
-      final listings = jsonDecode(utf8.decode(res.bodyBytes)) as List;
-      if (listings.length < 2) return const [];
+      // The response is [post listing, comment listing] — unless Reddit
+      // served a block page, which decodes to something else entirely.
+      final Object? decoded;
+      try {
+        decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      } on FormatException {
+        continue;
+      }
+      if (decoded is! List || decoded.length < 2) continue;
+      final listings = decoded;
 
       final entries = <ThreadEntry>[];
       _collectComments(
@@ -212,11 +242,20 @@ class RedditClient extends SourceClient {
     }
   }
 
-  List<FeedItem> _parse(http.Response res) {
-    final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
-    final children =
-        ((body['data'] as Map<String, dynamic>?)?['children'] as List? ??
-            const []);
+  /// Returns null when the body isn't a Reddit listing — an HTML block page,
+  /// or Reddit's `{"error": 403}` JSON. Callers treat that as blocked rather
+  /// than letting a decode error escape to the user.
+  List<FeedItem>? _tryParse(http.Response res) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    } on FormatException {
+      return null;
+    }
+
+    if (decoded is! Map<String, dynamic>) return null;
+    final children = (decoded['data'] as Map<String, dynamic>?)?['children'];
+    if (children is! List) return null;
 
     return children
         .map((c) => _toItem((c as Map<String, dynamic>)['data']

@@ -122,6 +122,24 @@ class _Feed extends StatelessWidget {
                 ),
               ],
             ),
+          if (state.hiddenCount > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Row(
+                children: [
+                  Icon(Icons.filter_alt,
+                      size: 14, color: Theme.of(context).colorScheme.outline),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${state.hiddenCount} hidden by filters',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: Theme.of(context).colorScheme.outline),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: items.isEmpty && !state.loading
                 ? ListView(
