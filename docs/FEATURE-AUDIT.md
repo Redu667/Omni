@@ -69,7 +69,7 @@ Closest comparison: Moshidon, Tusky, Ivory.
 | **Profile view** | ✓ | Tap an author to see their recent posts. |
 | **Bookmarks & favourites** | ✓ | Both readable as sources once signed in. They page by their own ids from the `Link` header, not by status id — paging them as a timeline returns the same page forever. |
 | **Sensitive media blur** | ◐ | Whole post is hidden; no per-attachment blur-with-tap. |
-| **Filters (server-side)** | ✗ | Mastodon's own keyword filters are ignored; Omni's local ones are separate. |
+| **Filters (server-side)** | ✓ | The instance's own filters are respected: `hide` drops the post, `warn` hides the body behind a reveal naming the filter. Mastodon evaluates them server-side and reports the verdict per status, so keyword rules, whole-word matching and expiry come from the instance rather than being reimplemented. |
 
 ---
 
@@ -168,4 +168,4 @@ Ordered by value-per-effort rather than by how impressive they sound.
 2. **Network-side search** — local search covers what's loaded; finding an old post still means scrolling to it.
 3. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice.
 4. **RSS full-text extraction** — feeds that publish only a teaser stay a teaser.
-5. **Mastodon server-side filters** — the instance's own keyword filters are ignored.
+5. **Offline detection** — with no signal, every source fails separately instead of the refresh being skipped.

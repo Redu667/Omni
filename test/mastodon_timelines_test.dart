@@ -37,6 +37,7 @@ final _status = {
 }
 
 void main() {
+  _filterTests();
   _collectionTests();
   group('which timeline', () {
     test('a hashtag uses the tag timeline, with or without a token', () async {
@@ -264,6 +265,116 @@ void _collectionTests() {
       expect(MastodonClient.nextMaxId('garbage'), isNull);
       expect(MastodonClient.nextMaxId('<no-brackets; rel="next"'), isNull);
       expect(MastodonClient.nextMaxId('<https://x/a>; rel="next"'), isNull);
+    });
+  });
+}
+
+/// Mastodon evaluates the reader's own filters server-side and reports the
+/// verdict on each status.
+void _filterTests() {
+  Map<String, dynamic> filtered(String action, {String title = 'Politics'}) => {
+        'filter': {'id': '1', 'title': title, 'filter_action': action},
+        'keyword_matches': ['election'],
+      };
+
+  Map<String, dynamic> status({
+    List<Map<String, dynamic>>? results,
+    Map<String, dynamic>? reblog,
+    String? spoiler,
+  }) =>
+      {
+        'id': '1',
+        'created_at': '2026-08-05T10:00:00.000Z',
+        'content': '<p>hello</p>',
+        'account': {'display_name': 'A', 'acct': 'a', 'username': 'a'},
+        'media_attachments': [],
+        if (spoiler != null) 'spoiler_text': spoiler,
+        if (results != null) 'filtered': results,
+        if (reblog != null) 'reblog': reblog,
+      };
+
+  group("the instance's own filters", () {
+    test('a hide filter drops the post entirely', () async {
+      final r = recorder([
+        status(results: [filtered('hide')]),
+        status(),
+      ]);
+      final items = await SourceClient.forSource(
+              masto({'accessToken': 'tok'}), r.client)
+          .fetchLatest();
+
+      expect(items, hasLength(1));
+    });
+
+    test('a warn filter hides the body behind a reveal, naming the filter',
+        () async {
+      final r = recorder([
+        status(results: [filtered('warn')]),
+      ]);
+      final item = (await SourceClient.forSource(
+                  masto({'accessToken': 'tok'}), r.client)
+              .fetchLatest())
+          .single;
+
+      expect(item.needsReveal, isTrue);
+      expect(item.contentWarning, 'Filtered: Politics');
+    });
+
+    test("a filter outranks the author's own warning", () async {
+      final r = recorder([
+        status(results: [filtered('warn')], spoiler: 'spoilers ahead'),
+      ]);
+      final item = (await SourceClient.forSource(
+                  masto({'accessToken': 'tok'}), r.client)
+              .fetchLatest())
+          .single;
+
+      expect(item.contentWarning, startsWith('Filtered'));
+    });
+
+    test('a boost of something filtered is dropped too', () async {
+      final r = recorder([
+        status(reblog: status(results: [filtered('hide')])),
+      ]);
+      final items = await SourceClient.forSource(
+              masto({'accessToken': 'tok'}), r.client)
+          .fetchLatest();
+
+      expect(items, isEmpty);
+    });
+
+    test('an unfiltered post is untouched', () async {
+      final r = recorder([status(spoiler: 'spoilers ahead')]);
+      final item = (await SourceClient.forSource(
+                  masto({'accessToken': 'tok'}), r.client)
+              .fetchLatest())
+          .single;
+
+      expect(item.contentWarning, 'spoilers ahead');
+    });
+
+    test('an empty or absent filtered list changes nothing', () async {
+      final r = recorder([status(results: const [])]);
+      final item = (await SourceClient.forSource(
+                  masto({'accessToken': 'tok'}), r.client)
+              .fetchLatest())
+          .single;
+
+      expect(item.needsReveal, isFalse);
+      expect(MastodonClient.isFilteredOut(null), isFalse);
+      expect(MastodonClient.isFilteredOut('nonsense'), isFalse);
+    });
+
+    test('a filter with no title still says something', () async {
+      final r = recorder([
+        status(results: [filtered('warn', title: '')]),
+      ]);
+      final item = (await SourceClient.forSource(
+                  masto({'accessToken': 'tok'}), r.client)
+              .fetchLatest())
+          .single;
+
+      expect(item.contentWarning, 'Filtered');
     });
   });
 }

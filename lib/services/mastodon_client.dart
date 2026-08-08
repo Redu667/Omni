@@ -71,9 +71,12 @@ class MastodonClient extends SourceClient {
     }
 
     final statuses = jsonDecode(utf8.decode(res.bodyBytes)) as List;
-    final items = statuses
-        .map((s) => _toItem(s as Map<String, dynamic>))
-        .toList(growable: false);
+    final items = [
+      for (final status in statuses.cast<Map<String, dynamic>>())
+        // A filter set to "hide" means exactly that; showing it behind a
+        // reveal would be second-guessing the reader's own instance.
+        if (!hiddenByFilter(status)) _toItem(status),
+    ];
 
     // Bookmarks and favourites are keyed by their own internal ids, which
     // only appear in the Link header — paging them by status id silently
@@ -243,6 +246,36 @@ class MastodonClient extends SourceClient {
         .toList(growable: false);
   }
 
+  /// Whether a status — or, for a boost, what it boosted — is filtered out.
+  static bool hiddenByFilter(Map<String, dynamic> status) =>
+      isFilteredOut(status['filtered']) ||
+      isFilteredOut((status['reblog'] as Map<String, dynamic>?)?['filtered']);
+
+  /// Whether the instance's own filters hide this status outright.
+  ///
+  /// Mastodon evaluates the reader's filters server-side and reports the
+  /// result on each status, so this respects their settings without
+  /// reimplementing keyword matching, whole-word rules and expiry.
+  static bool isFilteredOut(Object? filtered) {
+    if (filtered is! List) return false;
+    return filtered.whereType<Map<String, dynamic>>().any((result) =>
+        (result['filter'] as Map<String, dynamic>?)?['filter_action'] ==
+        'hide');
+  }
+
+  /// The title of a `warn` filter matching this status, if any — shown as
+  /// the reason the body starts hidden.
+  static String? _filterWarning(Object? filtered) {
+    if (filtered is! List) return null;
+    for (final result in filtered.whereType<Map<String, dynamic>>()) {
+      final filter = result['filter'] as Map<String, dynamic>?;
+      if (filter == null || filter['filter_action'] == 'hide') continue;
+      final title = (filter['title'] as String?)?.trim();
+      return title == null || title.isEmpty ? 'Filtered' : 'Filtered: $title';
+    }
+    return null;
+  }
+
   /// Mastodon sends custom emoji as a list of `{shortcode, url}`; the UI
   /// wants to look them up by code.
   static Map<String, String> _emojiMap(Object? raw) {
@@ -297,6 +330,7 @@ class MastodonClient extends SourceClient {
     final account = s['account'] as Map<String, dynamic>;
     final media = (s['media_attachments'] as List? ?? const [])
         .cast<Map<String, dynamic>>();
+    final filter = _filterWarning(s['filtered']);
 
     return FeedItem(
       id: '${source.id}:${status['id']}',
@@ -310,10 +344,13 @@ class MastodonClient extends SourceClient {
       nativeId: s['id'] as String?,
       poll: _pollFrom(s['poll'] as Map<String, dynamic>?),
       linkCard: _cardFrom(s['card'] as Map<String, dynamic>?),
-      contentWarning: (s['spoiler_text'] as String?)?.trim().isNotEmpty == true
-          ? (s['spoiler_text'] as String).trim()
-          : null,
-      sensitive: s['sensitive'] as bool? ?? false,
+      // A filter the reader set on their own instance outranks the
+      // author's own warning: they asked not to see this.
+      contentWarning: filter ??
+          ((s['spoiler_text'] as String?)?.trim().isNotEmpty == true
+              ? (s['spoiler_text'] as String).trim()
+              : null),
+      sensitive: filter != null || (s['sensitive'] as bool? ?? false),
       media: [
         for (final m in media)
           if (_mediaFrom(m) case final attachment?) attachment,
