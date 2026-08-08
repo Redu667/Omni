@@ -31,7 +31,10 @@ Moshidon, but spanning multiple networks.
   everything under it.
 - **Photos, video and audio** — tap an image for full screen with pinch-zoom
   and swipe-through galleries; video plays in-app on Mastodon, Bluesky,
-  Reddit and X, and podcast enclosures play with their cover art.
+  Reddit and X, and podcast enclosures play with their cover art. Anything
+  can be saved to your gallery — Reddit videos with their sound, which takes
+  fetching the picture and audio separately and joining them, because that
+  is how Reddit stores them.
 - **Search** — over every post already loaded: instant, offline, and covering
   titles, bodies, authors, flair, alt text, quoted posts and link cards.
 - **Open any account** — tap an author anywhere to see their recent posts,

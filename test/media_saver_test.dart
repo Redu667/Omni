@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import 'package:http/testing.dart';
 import 'package:omni/models/feed_item.dart';
+import 'package:omni/services/media_remuxer.dart';
 import 'package:omni/services/media_saver.dart';
 
 /// Records what the gallery was asked to store, standing in for the plugin.
@@ -14,15 +16,36 @@ class Gallery {
   int accessRequests = 0;
 }
 
+/// Stands in for Android's muxer, which unit tests can't reach.
+class FakeRemuxer extends MediaRemuxer {
+  FakeRemuxer({this.succeeds = true}) : super(const MethodChannel('test'));
+
+  final bool succeeds;
+  final calls = <({String video, String audio, String output})>[];
+
+  @override
+  Future<bool> remux({
+    required String videoPath,
+    required String audioPath,
+    required String outputPath,
+  }) async {
+    calls.add((video: videoPath, audio: audioPath, output: outputPath));
+    if (succeeds) await File(outputPath).writeAsBytes([9, 9, 9]);
+    return succeeds;
+  }
+}
+
 MediaSaver saverWith(
   Gallery gallery, {
   required http.Client client,
   Directory? temp,
   int maxBytes = 200 * 1024 * 1024,
+  MediaRemuxer? remuxer,
 }) =>
     MediaSaver(
       httpClient: client,
       maxBytes: maxBytes,
+      remuxer: remuxer,
       tempDirectory: () async => temp ?? Directory.systemTemp,
       saveImage: (bytes, name) async =>
           gallery.images.add((bytes: bytes, name: name)),
@@ -41,6 +64,7 @@ MediaItem image(String url) => MediaItem(url: url);
 MediaItem video(String url) => MediaItem(url: url, kind: MediaKind.video);
 
 void main() {
+  _redditTests();
   test('an image goes to the gallery as bytes', () async {
     final gallery = Gallery();
     final message = await saverWith(gallery, client: serving([1, 2, 3]))
@@ -77,20 +101,17 @@ void main() {
   });
 
   group('refuses honestly', () {
-    test('a streamed playlist, which is not a file', () async {
+    test('a streamed playlist with no whole-file equivalent', () async {
       final gallery = Gallery();
-      for (final url in [
-        'https://video.bsky.app/1/playlist.m3u8',
-        'https://v.redd.it/abc/DASHPlaylist.mpd',
-      ]) {
-        await expectLater(
-          saverWith(gallery, client: serving([1])).save(video(url)),
-          throwsA(isA<SaveException>()
-              .having((e) => e.message, 'message', contains('streamed'))),
-          reason: url,
-        );
-      }
-      // Nothing downloaded, because there was nothing worth downloading.
+
+      // Bluesky's HLS is segments and nothing else. Reddit is handled
+      // separately, because there the parts do exist as files.
+      await expectLater(
+        saverWith(gallery, client: serving([1]))
+            .save(video('https://video.bsky.app/1/playlist.m3u8')),
+        throwsA(isA<SaveException>()
+            .having((e) => e.message, 'message', contains('streamed'))),
+      );
       expect(gallery.videos, isEmpty);
     });
 
@@ -155,6 +176,141 @@ void main() {
       await saverWith(gallery, client: serving([1])).save(image('https://e'));
 
       expect(gallery.images.single.name, isNotEmpty);
+    });
+  });
+}
+
+/// Reddit splits a video into separate picture and sound files, so saving
+/// one means fetching both and joining them.
+void _redditTests() {
+  const manifestUrl = 'https://v.redd.it/abc123/DASHPlaylist.mpd';
+  const videoUrl = 'https://v.redd.it/abc123/DASH_720.mp4';
+  const audioUrl = 'https://v.redd.it/abc123/DASH_audio.mp4';
+
+  String manifest({bool withAudio = true}) => '''<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><Period>
+  <AdaptationSet contentType="video">
+    <Representation height="720"><BaseURL>DASH_720.mp4</BaseURL></Representation>
+  </AdaptationSet>
+  ${withAudio ? '<AdaptationSet contentType="audio">'
+      '<Representation><BaseURL>DASH_audio.mp4</BaseURL></Representation>'
+      '</AdaptationSet>' : ''}
+</Period></MPD>''';
+
+  ({List<String> fetched, http.Client client}) redditServer({
+    bool withAudio = true,
+    int videoStatus = 200,
+  }) {
+    final fetched = <String>[];
+    final client = MockClient((req) async {
+      final url = req.url.toString();
+      fetched.add(url);
+      if (url.endsWith('.mpd')) {
+        return http.Response(manifest(withAudio: withAudio), 200);
+      }
+      if (url == videoUrl) {
+        return http.Response.bytes([1, 2, 3], videoStatus);
+      }
+      return http.Response.bytes([4, 5, 6], 200);
+    });
+    return (fetched: fetched, client: client);
+  }
+
+  group('Reddit video', () {
+    test('joins the picture and the sound before saving', () async {
+      final gallery = Gallery();
+      final remuxer = FakeRemuxer();
+      final temp = await Directory.systemTemp.createTemp('omni_reddit');
+      addTearDown(() => temp.delete(recursive: true));
+      final server = redditServer();
+
+      final message = await saverWith(gallery,
+              client: server.client, temp: temp, remuxer: remuxer)
+          .save(video('https://v.redd.it/abc123/HLSPlaylist.m3u8'));
+
+      // The manifest is consulted rather than the filenames guessed.
+      expect(server.fetched, contains(manifestUrl));
+      expect(server.fetched, contains(videoUrl));
+      expect(server.fetched, contains(audioUrl));
+      expect(remuxer.calls, hasLength(1));
+      expect(gallery.videos.single, equals(remuxer.calls.single.output));
+      expect(message, 'Saved to your gallery');
+      // Three temporary files, none of them left behind.
+      expect(temp.listSync(), isEmpty);
+    });
+
+    test('says so when the video genuinely has no sound', () async {
+      final gallery = Gallery();
+      final remuxer = FakeRemuxer();
+      final temp = await Directory.systemTemp.createTemp('omni_reddit');
+      addTearDown(() => temp.delete(recursive: true));
+
+      final message = await saverWith(gallery,
+              client: redditServer(withAudio: false).client,
+              temp: temp,
+              remuxer: remuxer)
+          .save(video(manifestUrl));
+
+      // A converted GIF has no audio track; nothing to join.
+      expect(remuxer.calls, isEmpty);
+      expect(gallery.videos, hasLength(1));
+      expect(message, contains('without sound'));
+    });
+
+    test('still saves the picture when joining fails', () async {
+      final gallery = Gallery();
+      final remuxer = FakeRemuxer(succeeds: false);
+      final temp = await Directory.systemTemp.createTemp('omni_reddit');
+      addTearDown(() => temp.delete(recursive: true));
+
+      final message = await saverWith(gallery,
+              client: redditServer().client, temp: temp, remuxer: remuxer)
+          .save(video(manifestUrl));
+
+      // A watchable silent clip beats refusing to save anything.
+      expect(gallery.videos, hasLength(1));
+      expect(message, contains('without sound'));
+      expect(temp.listSync(), isEmpty);
+    });
+
+    test('reports a refusal from Reddit', () async {
+      final gallery = Gallery();
+      final temp = await Directory.systemTemp.createTemp('omni_reddit');
+      addTearDown(() => temp.delete(recursive: true));
+
+      await expectLater(
+        saverWith(gallery,
+                client: redditServer(videoStatus: 403).client,
+                temp: temp,
+                remuxer: FakeRemuxer())
+            .save(video(manifestUrl)),
+        throwsA(isA<SaveException>()
+            .having((e) => e.message, 'message', contains('403'))),
+      );
+      expect(temp.listSync(), isEmpty);
+    });
+
+    test('reports a manifest that is not one', () async {
+      final gallery = Gallery();
+      final client = MockClient((_) async => http.Response('<html/>', 200));
+
+      await expectLater(
+        saverWith(gallery, client: client, remuxer: FakeRemuxer())
+            .save(video(manifestUrl)),
+        throwsA(isA<SaveException>().having(
+            (e) => e.message, 'message', contains("where that video is"))),
+      );
+    });
+
+    test('a still from Reddit is unaffected', () async {
+      final gallery = Gallery();
+      final remuxer = FakeRemuxer();
+
+      await saverWith(gallery, client: serving([1]), remuxer: remuxer)
+          .save(image('https://preview.redd.it/a.png'));
+
+      expect(remuxer.calls, isEmpty);
+      expect(gallery.images, hasLength(1));
     });
   });
 }

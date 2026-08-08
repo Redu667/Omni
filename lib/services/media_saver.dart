@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/feed_item.dart';
+import 'media_remuxer.dart';
+import 'reddit_dash.dart';
 
 /// Puts a post's picture or video in the device gallery.
 ///
@@ -21,7 +23,9 @@ class MediaSaver {
     Future<void> Function(String path)? saveVideo,
     Future<bool> Function()? hasAccess,
     Future<bool> Function()? requestAccess,
+    MediaRemuxer? remuxer,
   })  : _http = httpClient ?? http.Client(),
+        _remuxer = remuxer ?? const MediaRemuxer(),
         _tempDirectory = tempDirectory ?? getTemporaryDirectory,
         _saveImage = saveImage ??
             ((bytes, name) =>
@@ -37,14 +41,19 @@ class MediaSaver {
   final Future<void> Function(String path) _saveVideo;
   final Future<bool> Function() _hasAccess;
   final Future<bool> Function() _requestAccess;
+  final MediaRemuxer _remuxer;
 
   /// Saves [media], returning the message to show. Throws [SaveException]
   /// with something the reader can act on.
   Future<String> save(MediaItem media) async {
-    // A streaming playlist isn't a file — Bluesky video and Reddit's HLS
-    // are manifests pointing at hundreds of segments, and "saving" one
+    // Reddit splits video and audio into separate files, so its "playlist"
+    // URLs do lead to something savable — see [_saveRedditVideo].
+    final manifestUrl = dashManifestUrlFor(media.url);
+
+    // Anything else streamed is genuinely not a file. Bluesky's HLS is
+    // segments with no whole-file equivalent, and "saving" the manifest
     // would produce a few kilobytes of text that plays nowhere.
-    if (_isPlaylist(media.url)) {
+    if (manifestUrl == null && _isPlaylist(media.url)) {
       throw SaveException(
           'This video is streamed rather than served as a file, so it '
           "can't be saved. Opening it in your browser will let you keep it "
@@ -55,14 +64,16 @@ class MediaSaver {
       throw SaveException('Omni needs permission to add to your gallery.');
     }
 
+    if (manifestUrl != null && media.kind.isPlayable) {
+      return _saveRedditVideo(manifestUrl);
+    }
+
     final uri = Uri.tryParse(media.url);
     if (uri == null) throw SaveException("That link doesn't point anywhere.");
 
     final http.Response res;
     try {
-      res = await _http.get(uri, headers: {
-        'User-Agent': 'Omni/1.0 (+feed reader)',
-      });
+      res = await _http.get(uri, headers: _headers);
     } catch (_) {
       throw SaveException("Couldn't download it — check your connection.");
     }
@@ -102,6 +113,87 @@ class MediaSaver {
       });
     }
   }
+
+  /// Downloads a `v.redd.it` video and its audio, and joins them.
+  ///
+  /// Reddit serves adaptive streams, so the picture and the sound are
+  /// different files. Saving only the video is what makes a saved Reddit
+  /// clip silent; this is the whole reason the manifest is consulted rather
+  /// than the URL saved directly.
+  Future<String> _saveRedditVideo(String manifestUrl) async {
+    final manifestUri = Uri.parse(manifestUrl);
+
+    final http.Response manifest;
+    try {
+      manifest = await _http.get(manifestUri, headers: _headers);
+    } catch (_) {
+      throw SaveException("Couldn't download it — check your connection.");
+    }
+    if (manifest.statusCode != 200) {
+      throw SaveException(
+          'Reddit answered HTTP ${manifest.statusCode} for that video.');
+    }
+
+    final tracks = parseDashManifest(manifest.body, manifestUri);
+    if (tracks == null) {
+      throw SaveException("Couldn't work out where that video is stored.");
+    }
+
+    final dir = await _tempDirectory();
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final videoFile = File('${dir.path}/omni_$stamp.video.mp4');
+    final audioFile = File('${dir.path}/omni_$stamp.audio.mp4');
+    final outputFile = File('${dir.path}/omni_reddit_$stamp.mp4');
+
+    try {
+      await _download(tracks.videoUrl, videoFile);
+
+      var saved = videoFile;
+      if (tracks.hasAudio) {
+        await _download(tracks.audioUrl!, audioFile);
+        final joined = await _remuxer.remux(
+          videoPath: videoFile.path,
+          audioPath: audioFile.path,
+          outputPath: outputFile.path,
+        );
+        // A failed join still leaves a watchable clip, which beats
+        // refusing to save anything.
+        if (joined) saved = outputFile;
+      }
+
+      await _saveVideo(saved.path);
+      return tracks.hasAudio && saved == outputFile
+          ? 'Saved to your gallery'
+          // Said plainly rather than letting it be discovered on playback.
+          : 'Saved to your gallery, without sound';
+    } on SaveException {
+      rethrow;
+    } catch (_) {
+      throw SaveException("Couldn't save that video.");
+    } finally {
+      for (final file in [videoFile, audioFile, outputFile]) {
+        if (await file.exists()) await file.delete();
+      }
+    }
+  }
+
+  Future<void> _download(String url, File into) async {
+    final http.Response res;
+    try {
+      res = await _http.get(Uri.parse(url), headers: _headers);
+    } catch (_) {
+      throw SaveException("Couldn't download it — check your connection.");
+    }
+    if (res.statusCode != 200) {
+      throw SaveException('The server answered HTTP ${res.statusCode}.');
+    }
+    if (res.bodyBytes.length > maxBytes) {
+      throw SaveException('That file is too large to save.');
+    }
+    await into.writeAsBytes(res.bodyBytes);
+  }
+
+  static const _headers = {'User-Agent': 'Omni/1.0 (+feed reader)'};
 
   static bool _isPlaylist(String url) {
     final path = Uri.tryParse(url)?.path.toLowerCase() ?? '';

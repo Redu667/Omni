@@ -112,7 +112,7 @@ Closest comparison: Infinity, RedReader, Boost.
 | **Collapse comment threads** | ✓ | Tap a comment's header to fold it and everything under it, with a count of what's hidden. The body isn't the handle — selecting text there would fold the comment out from under you. |
 | **Load more comments** | ✓ | "N more replies" loads in place, at the right indentation, both at the top level and under a specific comment. Reddit's 100-per-request cap is handled by leaving the remainder behind the next button. "Continue this thread" stubs, which carry nothing to request, aren't offered. |
 | **Galleries** | ✓ | Every image of a gallery is carried, with captions as alt text. |
-| **Video** | ✓ | `v.redd.it` plays via its HLS stream. The `fallback_url` is video-only, so it's the last resort — a silent clip is worse than an obvious failure — except for converted GIFs, which have no audio to lose. |
+| **Video** | ✓ | `v.redd.it` plays via its HLS stream, and saves with sound: the DASH manifest is parsed to find the picture and audio files, which are downloaded and remuxed into one MP4 by Android's own muxer. A container rewrite, not a re-encode. |
 | **Polls** | ✗ | |
 | **Flair** | ◐ | Shown as a chip on posts. Not yet filterable. |
 | **User profile feeds** | ◐ | Tapping an author shows their submitted posts; can't add `u/someone` as a standing source. |
@@ -168,5 +168,5 @@ Closest comparison: Feedly, NetNewsWire, Miniflux.
 Ordered by value-per-effort rather than by how impressive they sound.
 
 1. **Cross-post de-duplication** — the same story from an RSS feed and a subreddit still appears twice. Deliberately not done: it needs a decision about which copy to keep, and it doesn't happen often enough to be worth getting wrong.
-2. **Saving streamed video** — HLS and DASH are manifests, not files; keeping one means muxing the segments, which is a lot of machinery for a rare want.
+2. **Saving Bluesky video** — its HLS is segments with no whole-file equivalent, so keeping one means fetching and concatenating every segment. Reddit needed no such thing; its parts are ordinary files.
 4. **Per-source refresh interval** — everything refreshes together, on demand only. Only worth having alongside background refresh, and probably not even then.
