@@ -129,14 +129,14 @@ Closest comparison: Squawker; historically Tweetbot and Talon.
 | Stale-data detection | ✓ | Refuses to present a stale timeline as current. |
 | **Home timeline** | ✓ | A Twitter source can follow your own timeline instead of named accounts, when signed in. |
 | **Quote tweets** | ✓ | Rendered inline, as on Bluesky. |
-| **Conversation threads** | ✗ | `fetchThread` isn't implemented for X at all; replies are unavailable. |
+| **Conversation threads** | ✓ | Replies load via TweetDetail, with the tweets above the one being read shown as its ancestors and reply chains indented. A stale query ID leaves the post readable and simply shows no conversation. |
 | **Search** | ✗ | |
 | **Lists** | ✗ | |
 | **Bookmarks** | ✗ | |
 | **Polls** | ✗ | |
 | **Video** | ✗ | |
 | **Interactions** | ✗ | No like, repost, or reply. |
-| **Fragility** | ◐ | Query IDs are user-editable, which softens breakage but doesn't prevent it. No automatic detection or self-updating. |
+| **Fragility** | ◐ | Every query ID is user-editable — including the home timeline and TweetDetail ones, which were previously reset to defaults whenever the screen was saved. Still no automatic detection or self-updating. |
 
 ---
 
